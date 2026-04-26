@@ -1,11 +1,15 @@
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/auth/auth_state.dart';
+import '../admin/add_voting_center_screen.dart';
 
 class PollingStationsScreen extends StatelessWidget {
   const PollingStationsScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final auth = AuthStateWidget.of(context);
+    final bool isAdmin = auth.isLoggedIn && auth.currentUser?.role == 'admin';
     return Scaffold(
       backgroundColor: const Color(0xFFF4F6F9),
       appBar: AppBar(
@@ -17,6 +21,20 @@ class PollingStationsScreen extends StatelessWidget {
         ),
         centerTitle: true,
       ),
+      // Admin-only FAB — navigates to the Add Polling Station form
+      floatingActionButton: isAdmin
+          ? FloatingActionButton.extended(
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const AddVotingCenterScreen()),
+              ),
+              backgroundColor: AppColors.primaryContainer,
+              foregroundColor: Colors.white,
+              icon: const Icon(Icons.add_location_alt_rounded),
+              label: const Text('إضافة مركز',
+                  style: TextStyle(fontWeight: FontWeight.bold)),
+            )
+          : null,
       body: ListView(
         padding: const EdgeInsets.all(24.0),
         children: [
@@ -58,7 +76,37 @@ class PollingStationsScreen extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 32),
-          
+
+          // Admin info banner
+          if (isAdmin)
+            Container(
+              margin: const EdgeInsets.only(bottom: 16),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                color: AppColors.primaryContainer.withOpacity(0.07),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                    color: AppColors.primaryContainer.withOpacity(0.25),
+                    width: 1),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.admin_panel_settings,
+                      color: AppColors.primaryContainer, size: 20),
+                  const SizedBox(width: 10),
+                  const Expanded(
+                    child: Text(
+                      'وضع المشرف — يمكنك إضافة مراكز اقتراع جديدة عبر زر الإضافة.',
+                      style: TextStyle(
+                          fontSize: 12,
+                          color: AppColors.primaryContainer,
+                          fontWeight: FontWeight.w500),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
           const Text(
             "المراكز المتاحة في منطقتك",
             style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF001F3F)),

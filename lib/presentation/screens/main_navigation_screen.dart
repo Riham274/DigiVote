@@ -43,9 +43,8 @@ class MainNavigationScreen extends StatefulWidget {
 class _MainNavigationScreenState extends State<MainNavigationScreen> {
   int _currentIndex = 0;
 
-  // Fixed pool — indices always map to the same screen slots.
-  // (Only used when NOT admin; admin bypasses IndexedStack entirely.)
-  final List<GlobalKey<NavigatorState>> _navigatorKeys = [
+  // --- User / Guest navigator keys (5 slots) ---
+  final List<GlobalKey<NavigatorState>> _userNavKeys = [
     GlobalKey<NavigatorState>(), // 0 → Home
     GlobalKey<NavigatorState>(), // 1 → Candidates
     GlobalKey<NavigatorState>(), // 2 → Polling Stations
@@ -53,54 +52,64 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     GlobalKey<NavigatorState>(), // 4 → Account
   ];
 
+  // --- Admin navigator keys (4 slots) ---
+  final List<GlobalKey<NavigatorState>> _adminNavKeys = [
+    GlobalKey<NavigatorState>(), // 0 → Dashboard
+    GlobalKey<NavigatorState>(), // 1 → Add Candidate
+    GlobalKey<NavigatorState>(), // 2 → Add Polling Station
+    GlobalKey<NavigatorState>(), // 3 → Account
+  ];
+
   @override
   Widget build(BuildContext context) {
     // ------------------------------------------------------------------ auth
-    // InheritedNotifier registered here → rebuild fires on every login/logout
     final auth = AuthStateWidget.of(context);
     final bool isLoggedIn = auth.isLoggedIn;
     final user = auth.currentUser;
     final bool isAdmin = isLoggedIn && user?.role == 'admin';
     final bool isUser  = isLoggedIn && user?.role == 'user';
 
-    // Debug print — visible in Flutter console
     debugPrint('[Auth] isLoggedIn=$isLoggedIn  role=${user?.role ?? "guest"}');
 
-    // ----------------------------------------------------------------- tabs
-    // Guest  → [0=Home, 4=Account]
-    // User   → [0=Home, 1=Cand, 2=Stations, 3=Notif, 4=Account]
-    // Admin  → no bottom nav, no IndexedStack (full-screen dashboard)
-    final List<int> visibleIndices = [0];
-    if (isUser) visibleIndices.addAll([1, 2, 3]);
-    if (!isAdmin) visibleIndices.add(4);
+    // ----------------------------------------------------------------- key
+    // Changes when auth state changes → tears down old IndexedStack/Navigators
+    final String authKey = isAdmin ? 'admin' : (isUser ? 'user' : 'guest');
 
-    // Reset stale index on next frame (can't call setState during build)
-    if (!isAdmin && !visibleIndices.contains(_currentIndex)) {
+    // ----------------------------------------------------------------- tabs
+    // Guest  → [0=Home, 4=Account]        (2 tabs)
+    // User   → [0..4]                     (5 tabs)
+    // Admin  → [0=Dashboard, 1=Candidate, 2=Center, 3=Account]  (4 tabs)
+    final List<int> userVisibleIndices = [0];
+    if (isUser) userVisibleIndices.addAll([1, 2, 3]);
+    userVisibleIndices.add(4);
+
+    // Max index for current role
+    final int maxIndex = isAdmin ? 3 : 4;
+
+    // Reset stale index on next frame
+    if (_currentIndex > maxIndex) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) setState(() => _currentIndex = 0);
       });
     }
 
-    final int safeIndex = isAdmin ? 0 : _currentIndex.clamp(0, 4);
-    final int barIndex  =
-        visibleIndices.indexOf(safeIndex).clamp(0, visibleIndices.length - 1);
+    final int safeIndex = _currentIndex.clamp(0, maxIndex);
 
-    // ----------------------------------------------------------------- key
-    // Changing this key forces Flutter to destroy and recreate the entire
-    // IndexedStack subtree (including all nested Navigators), so there is
-    // NEVER a stale route left over from a previous auth state.
-    final String authKey = isAdmin ? 'admin' : (isUser ? 'user' : 'guest');
+    // barIndex for user/guest (maps visible tabs to actual indices)
+    final int userBarIndex = isAdmin
+        ? safeIndex
+        : userVisibleIndices
+            .indexOf(safeIndex)
+            .clamp(0, userVisibleIndices.length - 1);
 
     // ------------------------------------------------------------------ ui
     return Directionality(
       textDirection: TextDirection.rtl,
       child: WillPopScope(
         onWillPop: () async {
-          if (isAdmin) return false; // admin has no back-stack to pop
-          final canPop = await _navigatorKeys[safeIndex]
-                  .currentState
-                  ?.maybePop() ??
-              false;
+          final keys = isAdmin ? _adminNavKeys : _userNavKeys;
+          final canPop =
+              await keys[safeIndex].currentState?.maybePop() ?? false;
           if (!canPop && safeIndex != 0) {
             setState(() => _currentIndex = 0);
             return false;
@@ -109,119 +118,218 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         },
         child: Scaffold(
           // ---------------------------------------------------------------
-          // ADMIN: render AdminDashboardScreen DIRECTLY as the body.
-          // This completely bypasses IndexedStack so there is NO possibility
-          // of a stale Navigator showing the wrong screen.
+          // BODY: separate IndexedStack per role, keyed on authKey so
+          // Flutter tears down stale navigators on every auth transition.
           // ---------------------------------------------------------------
           body: isAdmin
-              ? const AdminDashboardScreen()
-              // -----------------------------------------------------------
-              // USER / GUEST: IndexedStack with ValueKey(authKey).
-              // When authKey changes (guest→user, user→guest, etc.) Flutter
-              // tears down the old stack and builds fresh Navigators — no
-              // stale routes.
-              // -----------------------------------------------------------
-              : IndexedStack(
-                  key: ValueKey(authKey),
-                  index: safeIndex,
-                  children: [
-                    // 0 — Home
-                    TabNavigator(
-                      navigatorKey: _navigatorKeys[0],
-                      rootScreen: isUser
-                          ? const UserHomeScreen()
-                          : const PublicHomeScreen(),
-                    ),
-                    // 1 — Candidates
-                    TabNavigator(
-                      navigatorKey: _navigatorKeys[1],
-                      rootScreen: const CandidatesListScreen(),
-                    ),
-                    // 2 — Polling Stations
-                    TabNavigator(
-                      navigatorKey: _navigatorKeys[2],
-                      rootScreen: const PollingStationsScreen(),
-                    ),
-                    // 3 — Notifications
-                    TabNavigator(
-                      navigatorKey: _navigatorKeys[3],
-                      rootScreen: const NotificationsScreen(),
-                    ),
-                    // 4 — Account
-                    TabNavigator(
-                      navigatorKey: _navigatorKeys[4],
-                      rootScreen: const AccountScreen(),
-                    ),
-                  ],
-                ),
+              ? _buildAdminStack(authKey)
+              : _buildUserStack(authKey, isUser, userVisibleIndices, safeIndex),
 
-          // Admin: no bottom navigation bar (dashboard is the only screen)
+          // ---------------------------------------------------------------
+          // BOTTOM NAV
+          // ---------------------------------------------------------------
           bottomNavigationBar: isAdmin
-              ? null
-              : Container(
-                  decoration: BoxDecoration(
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.05),
-                        blurRadius: 20,
-                        offset: const Offset(0, -5),
-                      ),
-                    ],
-                  ),
-                  child: BottomNavigationBar(
-                    currentIndex: barIndex,
-                    onTap: (tappedBarIndex) {
-                      final targetIndex = visibleIndices[tappedBarIndex];
-                      HapticFeedback.lightImpact();
-                      if (_currentIndex == targetIndex) {
-                        _navigatorKeys[targetIndex]
-                            .currentState
-                            ?.popUntil((r) => r.isFirst);
-                      } else {
-                        setState(() => _currentIndex = targetIndex);
-                      }
-                    },
-                    backgroundColor: Colors.white,
-                    selectedItemColor: AppColors.primary,
-                    unselectedItemColor: Colors.grey[400],
-                    selectedLabelStyle: const TextStyle(
-                        fontWeight: FontWeight.bold, fontSize: 10),
-                    unselectedLabelStyle: const TextStyle(
-                        fontWeight: FontWeight.normal, fontSize: 10),
-                    elevation: 0,
-                    type: BottomNavigationBarType.fixed,
-                    items: [
-                      const BottomNavigationBarItem(
-                        icon: Icon(Icons.home_outlined),
-                        activeIcon: Icon(Icons.home),
-                        label: 'الرئيسية',
-                      ),
-                      if (isUser) ...[
-                        const BottomNavigationBarItem(
-                          icon: Icon(Icons.people_outline),
-                          activeIcon: Icon(Icons.people),
-                          label: 'المرشحون',
-                        ),
-                        const BottomNavigationBarItem(
-                          icon: Icon(Icons.location_on_outlined),
-                          activeIcon: Icon(Icons.location_on),
-                          label: 'المراكز',
-                        ),
-                        const BottomNavigationBarItem(
-                          icon: Icon(Icons.notifications_outlined),
-                          activeIcon: Icon(Icons.notifications),
-                          label: 'الإشعارات',
-                        ),
-                      ],
-                      const BottomNavigationBarItem(
-                        icon: Icon(Icons.person_outline),
-                        activeIcon: Icon(Icons.person),
-                        label: 'حسابي',
-                      ),
-                    ],
-                  ),
-                ),
+              ? _buildAdminNav(safeIndex)
+              : _buildUserNav(safeIndex, isUser, userVisibleIndices,
+                  userBarIndex),
         ),
+      ),
+    );
+  }
+
+  // =========================================================================
+  // ADMIN
+  // =========================================================================
+
+  Widget _buildAdminStack(String authKey) {
+    return IndexedStack(
+      key: ValueKey(authKey),
+      index: _currentIndex.clamp(0, 3),
+      children: [
+        // 0 — Admin Dashboard
+        TabNavigator(
+          navigatorKey: _adminNavKeys[0],
+          rootScreen: const AdminDashboardScreen(),
+        ),
+        // 1 — Candidates (shared screen — admin sees extra FAB inside)
+        TabNavigator(
+          navigatorKey: _adminNavKeys[1],
+          rootScreen: const CandidatesListScreen(),
+        ),
+        // 2 — Polling Stations (shared screen — admin sees extra FAB inside)
+        TabNavigator(
+          navigatorKey: _adminNavKeys[2],
+          rootScreen: const PollingStationsScreen(),
+        ),
+        // 3 — Account (admin profile)
+        TabNavigator(
+          navigatorKey: _adminNavKeys[3],
+          rootScreen: const AccountScreen(),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAdminNav(int safeIndex) {
+    return Container(
+      decoration: BoxDecoration(
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 20,
+            offset: const Offset(0, -5),
+          ),
+        ],
+      ),
+      child: BottomNavigationBar(
+        currentIndex: safeIndex.clamp(0, 3),
+        onTap: (index) {
+          HapticFeedback.lightImpact();
+          if (_currentIndex == index) {
+            _adminNavKeys[index]
+                .currentState
+                ?.popUntil((r) => r.isFirst);
+          } else {
+            setState(() => _currentIndex = index);
+          }
+        },
+        backgroundColor: Colors.white,
+        selectedItemColor: AppColors.primary,
+        unselectedItemColor: Colors.grey[400],
+        selectedLabelStyle:
+            const TextStyle(fontWeight: FontWeight.bold, fontSize: 10),
+        unselectedLabelStyle:
+            const TextStyle(fontWeight: FontWeight.normal, fontSize: 10),
+        elevation: 0,
+        type: BottomNavigationBarType.fixed,
+        items: const [
+          BottomNavigationBarItem(
+            icon: Icon(Icons.dashboard_outlined),
+            activeIcon: Icon(Icons.dashboard),
+            label: 'لوحة التحكم',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.people_outline),
+            activeIcon: Icon(Icons.people),
+            label: 'المرشحون',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.location_on_outlined),
+            activeIcon: Icon(Icons.location_on),
+            label: 'المراكز',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.person_outline),
+            activeIcon: Icon(Icons.person),
+            label: 'حسابي',
+          ),
+        ],
+      ),
+    );
+  }
+
+  // =========================================================================
+  // USER / GUEST
+  // =========================================================================
+
+  Widget _buildUserStack(String authKey, bool isUser,
+      List<int> visibleIndices, int safeIndex) {
+    return IndexedStack(
+      key: ValueKey(authKey),
+      index: safeIndex,
+      children: [
+        // 0 — Home
+        TabNavigator(
+          navigatorKey: _userNavKeys[0],
+          rootScreen: isUser ? const UserHomeScreen() : const PublicHomeScreen(),
+        ),
+        // 1 — Candidates
+        TabNavigator(
+          navigatorKey: _userNavKeys[1],
+          rootScreen: const CandidatesListScreen(),
+        ),
+        // 2 — Polling Stations
+        TabNavigator(
+          navigatorKey: _userNavKeys[2],
+          rootScreen: const PollingStationsScreen(),
+        ),
+        // 3 — Notifications
+        TabNavigator(
+          navigatorKey: _userNavKeys[3],
+          rootScreen: const NotificationsScreen(),
+        ),
+        // 4 — Account
+        TabNavigator(
+          navigatorKey: _userNavKeys[4],
+          rootScreen: const AccountScreen(),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildUserNav(int safeIndex, bool isUser,
+      List<int> visibleIndices, int barIndex) {
+    return Container(
+      decoration: BoxDecoration(
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 20,
+            offset: const Offset(0, -5),
+          ),
+        ],
+      ),
+      child: BottomNavigationBar(
+        currentIndex: barIndex,
+        onTap: (tappedBarIndex) {
+          final targetIndex = visibleIndices[tappedBarIndex];
+          HapticFeedback.lightImpact();
+          if (_currentIndex == targetIndex) {
+            _userNavKeys[targetIndex]
+                .currentState
+                ?.popUntil((r) => r.isFirst);
+          } else {
+            setState(() => _currentIndex = targetIndex);
+          }
+        },
+        backgroundColor: Colors.white,
+        selectedItemColor: AppColors.primary,
+        unselectedItemColor: Colors.grey[400],
+        selectedLabelStyle:
+            const TextStyle(fontWeight: FontWeight.bold, fontSize: 10),
+        unselectedLabelStyle:
+            const TextStyle(fontWeight: FontWeight.normal, fontSize: 10),
+        elevation: 0,
+        type: BottomNavigationBarType.fixed,
+        items: [
+          const BottomNavigationBarItem(
+            icon: Icon(Icons.home_outlined),
+            activeIcon: Icon(Icons.home),
+            label: 'الرئيسية',
+          ),
+          if (isUser) ...[
+            const BottomNavigationBarItem(
+              icon: Icon(Icons.people_outline),
+              activeIcon: Icon(Icons.people),
+              label: 'المرشحون',
+            ),
+            const BottomNavigationBarItem(
+              icon: Icon(Icons.location_on_outlined),
+              activeIcon: Icon(Icons.location_on),
+              label: 'المراكز',
+            ),
+            const BottomNavigationBarItem(
+              icon: Icon(Icons.notifications_outlined),
+              activeIcon: Icon(Icons.notifications),
+              label: 'الإشعارات',
+            ),
+          ],
+          const BottomNavigationBarItem(
+            icon: Icon(Icons.person_outline),
+            activeIcon: Icon(Icons.person),
+            label: 'حسابي',
+          ),
+        ],
       ),
     );
   }

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/auth/auth_state.dart';
+import '../admin/add_candidate_screen.dart';
 import 'candidate_details_screen.dart';
 
 class CandidatesListScreen extends StatelessWidget {
@@ -7,6 +9,10 @@ class CandidatesListScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Check if the current user is admin
+    final auth = AuthStateWidget.of(context);
+    final bool isAdmin = auth.isLoggedIn && auth.currentUser?.role == 'admin';
+
     return Scaffold(
       appBar: AppBar(
         title: Row(
@@ -14,7 +20,8 @@ class CandidatesListScreen extends StatelessWidget {
             Container(
               width: 32,
               height: 32,
-              decoration: const BoxDecoration(color: AppColors.primaryContainer, shape: BoxShape.circle),
+              decoration: const BoxDecoration(
+                  color: AppColors.primaryContainer, shape: BoxShape.circle),
               child: const Icon(Icons.how_to_vote, color: Colors.white, size: 16),
             ),
             const SizedBox(width: 8),
@@ -30,6 +37,20 @@ class CandidatesListScreen extends StatelessWidget {
           ),
         ],
       ),
+      // Admin-only FAB — navigates to the Add Candidate form
+      floatingActionButton: isAdmin
+          ? FloatingActionButton.extended(
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const AddCandidateScreen()),
+              ),
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.white,
+              icon: const Icon(Icons.person_add_rounded),
+              label: const Text('إضافة مرشح',
+                  style: TextStyle(fontWeight: FontWeight.bold)),
+            )
+          : null,
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(24.0),
         child: Column(
@@ -44,37 +65,83 @@ class CandidatesListScreen extends StatelessWidget {
                   ),
             ),
             const SizedBox(height: 8),
-            Container(width: 48, height: 4, color: AppColors.primaryContainer, margin: const EdgeInsets.only(bottom: 8)),
-            const Text('تعرف على المرشحين وبرامجهم الانتخابية', style: TextStyle(color: AppColors.onSurfaceVariant, fontSize: 16)),
+            Container(
+                width: 48,
+                height: 4,
+                color: AppColors.primaryContainer,
+                margin: const EdgeInsets.only(bottom: 8)),
+            const Text('تعرف على المرشحين وبرامجهم الانتخابية',
+                style: TextStyle(
+                    color: AppColors.onSurfaceVariant, fontSize: 16)),
             const SizedBox(height: 32),
+
+            // Admin info banner
+            if (isAdmin)
+              Container(
+                margin: const EdgeInsets.only(bottom: 24),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withOpacity(0.07),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                      color: AppColors.primary.withOpacity(0.2), width: 1),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.admin_panel_settings,
+                        color: AppColors.primary, size: 20),
+                    const SizedBox(width: 10),
+                    const Expanded(
+                      child: Text(
+                        'وضع المشرف — يمكنك إضافة مرشحين جدد عبر زر الإضافة.',
+                        style: TextStyle(
+                            fontSize: 12,
+                            color: AppColors.primary,
+                            fontWeight: FontWeight.w500),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
 
             // Candidates List
             ListView(
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
               children: [
-                _buildCandidateCard(context, 'د. أحمد المنصور', 'متخصص في الإدارة الاستراتيجية ويهدف لتطوير المنظومة التعليمية الرقمية.', 'assets/images/image_10.jpg'),
+                _buildCandidateCard(context, 'د. أحمد المنصور',
+                    'متخصص في الإدارة الاستراتيجية ويهدف لتطوير المنظومة التعليمية الرقمية.',
+                    'assets/images/image_10.jpg'),
                 const SizedBox(height: 16),
-                _buildCandidateCard(context, 'أ. سارة العتيبي', 'رائدة أعمال تسعى لتمكين الشباب وتعزيز فرص الابتكار والبحث العلمي.', 'assets/images/image_11.jpg'),
+                _buildCandidateCard(context, 'أ. سارة العتيبي',
+                    'رائدة أعمال تسعى لتمكين الشباب وتعزيز فرص الابتكار والبحث العلمي.',
+                    'assets/images/image_11.jpg'),
                 const SizedBox(height: 16),
-                _buildCandidateCard(context, 'م. خالد الراشد', 'خبير تقني يركز على التحول الذكي وتحسين الخدمات الحكومية الرقمية.', 'assets/images/image_12.jpg'),
+                _buildCandidateCard(context, 'م. خالد الراشد',
+                    'خبير تقني يركز على التحول الذكي وتحسين الخدمات الحكومية الرقمية.',
+                    'assets/images/image_12.jpg'),
                 const SizedBox(height: 16),
-                _buildCandidateCard(context, 'د. نورة السعيد', 'باحثة قانونية تهدف لتعزيز الشفافية والعدالة في الأنظمة التشريعية.', 'assets/images/image_13.jpg'),
+                _buildCandidateCard(context, 'د. نورة السعيد',
+                    'باحثة قانونية تهدف لتعزيز الشفافية والعدالة في الأنظمة التشريعية.',
+                    'assets/images/image_13.jpg'),
               ],
             ),
-            const SizedBox(height: 32),
-
-            const SizedBox(height: 100), // Padding for bottom nav
+            const SizedBox(height: 100), // Padding for bottom nav + FAB
           ],
         ),
       ),
     );
   }
 
-  Widget _buildCandidateCard(BuildContext context, String name, String bio, String imagePath) {
+  Widget _buildCandidateCard(
+      BuildContext context, String name, String bio, String imagePath) {
     return InkWell(
       onTap: () {
-        Navigator.push(context, MaterialPageRoute(builder: (context) => const CandidateDetailsScreen()));
+        Navigator.push(
+            context,
+            MaterialPageRoute(
+                builder: (context) => const CandidateDetailsScreen()));
       },
       borderRadius: BorderRadius.circular(24),
       child: Container(
@@ -83,7 +150,10 @@ class CandidatesListScreen extends StatelessWidget {
           color: AppColors.surfaceContainerLowest,
           borderRadius: BorderRadius.circular(24),
           boxShadow: [
-            BoxShadow(color: AppColors.primary.withOpacity(0.02), blurRadius: 10, offset: const Offset(0, 4)),
+            BoxShadow(
+                color: AppColors.primary.withOpacity(0.02),
+                blurRadius: 10,
+                offset: const Offset(0, 4)),
           ],
         ),
         child: Row(
@@ -93,7 +163,8 @@ class CandidatesListScreen extends StatelessWidget {
               height: 80,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                border: Border.all(color: AppColors.surfaceContainerLow, width: 4),
+                border: Border.all(
+                    color: AppColors.surfaceContainerLow, width: 4),
               ),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(40),
@@ -102,7 +173,8 @@ class CandidatesListScreen extends StatelessWidget {
                   fit: BoxFit.cover,
                   errorBuilder: (context, error, stackTrace) => Container(
                     color: AppColors.surfaceContainerLow,
-                    child: const Icon(Icons.person, color: AppColors.onSurfaceVariant),
+                    child: const Icon(Icons.person,
+                        color: AppColors.onSurfaceVariant),
                   ),
                 ),
               ),
@@ -112,9 +184,15 @@ class CandidatesListScreen extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(name, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.primary)),
+                  Text(name,
+                      style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.primary)),
                   const SizedBox(height: 4),
-                  Text(bio, style: const TextStyle(fontSize: 12, color: AppColors.onSurfaceVariant)),
+                  Text(bio,
+                      style: const TextStyle(
+                          fontSize: 12, color: AppColors.onSurfaceVariant)),
                 ],
               ),
             ),
@@ -126,12 +204,12 @@ class CandidatesListScreen extends StatelessWidget {
                 color: AppColors.primaryContainer,
                 shape: BoxShape.circle,
               ),
-              child: const Icon(Icons.arrow_back, color: Colors.white, size: 20),
+              child:
+                  const Icon(Icons.arrow_back, color: Colors.white, size: 20),
             ),
           ],
         ),
       ),
     );
   }
-
 }
