@@ -43,9 +43,10 @@ class MainNavigationScreen extends StatefulWidget {
 class _MainNavigationScreenState extends State<MainNavigationScreen> {
   int _currentIndex = 0;
 
-  // Fixed-size list — indices always correspond to the same screens
+  // Fixed pool — indices always map to the same screen slots.
+  // (Only used when NOT admin; admin bypasses IndexedStack entirely.)
   final List<GlobalKey<NavigatorState>> _navigatorKeys = [
-    GlobalKey<NavigatorState>(), // 0 → Home / Admin Dashboard
+    GlobalKey<NavigatorState>(), // 0 → Home
     GlobalKey<NavigatorState>(), // 1 → Candidates
     GlobalKey<NavigatorState>(), // 2 → Polling Stations
     GlobalKey<NavigatorState>(), // 3 → Notifications
@@ -54,82 +55,107 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // AuthStateWidget is above MaterialApp, so this always resolves correctly
-    // even from inside a nested Navigator.
+    // ------------------------------------------------------------------ auth
+    // InheritedNotifier registered here → rebuild fires on every login/logout
     final auth = AuthStateWidget.of(context);
-    final isLoggedIn = auth.isLoggedIn;
+    final bool isLoggedIn = auth.isLoggedIn;
     final user = auth.currentUser;
-    final isAdmin = isLoggedIn && user?.role == 'admin';
-    final isUser = isLoggedIn && user?.role == 'user';
+    final bool isAdmin = isLoggedIn && user?.role == 'admin';
+    final bool isUser  = isLoggedIn && user?.role == 'user';
 
-    // Build the visible tab → IndexedStack index mapping
-    // Guest  : [0=Home, 4=Account]
-    // User   : [0=Home, 1=Cand, 2=Stations, 3=Notif, 4=Account]
-    // Admin  : no bottom nav (full-screen dashboard)
+    // Debug print — visible in Flutter console
+    debugPrint('[Auth] isLoggedIn=$isLoggedIn  role=${user?.role ?? "guest"}');
+
+    // ----------------------------------------------------------------- tabs
+    // Guest  → [0=Home, 4=Account]
+    // User   → [0=Home, 1=Cand, 2=Stations, 3=Notif, 4=Account]
+    // Admin  → no bottom nav, no IndexedStack (full-screen dashboard)
     final List<int> visibleIndices = [0];
     if (isUser) visibleIndices.addAll([1, 2, 3]);
     if (!isAdmin) visibleIndices.add(4);
 
-    // If current index no longer visible (e.g. after logout), reset to 0
-    if (!visibleIndices.contains(_currentIndex)) {
+    // Reset stale index on next frame (can't call setState during build)
+    if (!isAdmin && !visibleIndices.contains(_currentIndex)) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) setState(() => _currentIndex = 0);
       });
     }
 
-    final int barIndex =
-        visibleIndices.indexOf(_currentIndex).clamp(0, visibleIndices.length - 1);
+    final int safeIndex = isAdmin ? 0 : _currentIndex.clamp(0, 4);
+    final int barIndex  =
+        visibleIndices.indexOf(safeIndex).clamp(0, visibleIndices.length - 1);
 
+    // ----------------------------------------------------------------- key
+    // Changing this key forces Flutter to destroy and recreate the entire
+    // IndexedStack subtree (including all nested Navigators), so there is
+    // NEVER a stale route left over from a previous auth state.
+    final String authKey = isAdmin ? 'admin' : (isUser ? 'user' : 'guest');
+
+    // ------------------------------------------------------------------ ui
     return Directionality(
       textDirection: TextDirection.rtl,
       child: WillPopScope(
         onWillPop: () async {
-          final canPop = await _navigatorKeys[_currentIndex]
-              .currentState
-              ?.maybePop() ?? false;
-          if (!canPop && _currentIndex != 0) {
+          if (isAdmin) return false; // admin has no back-stack to pop
+          final canPop = await _navigatorKeys[safeIndex]
+                  .currentState
+                  ?.maybePop() ??
+              false;
+          if (!canPop && safeIndex != 0) {
             setState(() => _currentIndex = 0);
             return false;
           }
           return !canPop;
         },
         child: Scaffold(
-          body: IndexedStack(
-            index: _currentIndex,
-            children: [
-              // 0 — Home / Dashboard
-              TabNavigator(
-                navigatorKey: _navigatorKeys[0],
-                rootScreen: isAdmin
-                    ? const AdminDashboardScreen()
-                    : isUser
-                        ? const UserHomeScreen()
-                        : const PublicHomeScreen(),
-              ),
-              // 1 — Candidates
-              TabNavigator(
-                navigatorKey: _navigatorKeys[1],
-                rootScreen: const CandidatesListScreen(),
-              ),
-              // 2 — Polling Stations
-              TabNavigator(
-                navigatorKey: _navigatorKeys[2],
-                rootScreen: const PollingStationsScreen(),
-              ),
-              // 3 — Notifications
-              TabNavigator(
-                navigatorKey: _navigatorKeys[3],
-                rootScreen: const NotificationsScreen(),
-              ),
-              // 4 — Account
-              TabNavigator(
-                navigatorKey: _navigatorKeys[4],
-                rootScreen: const AccountScreen(),
-              ),
-            ],
-          ),
+          // ---------------------------------------------------------------
+          // ADMIN: render AdminDashboardScreen DIRECTLY as the body.
+          // This completely bypasses IndexedStack so there is NO possibility
+          // of a stale Navigator showing the wrong screen.
+          // ---------------------------------------------------------------
+          body: isAdmin
+              ? const AdminDashboardScreen()
+              // -----------------------------------------------------------
+              // USER / GUEST: IndexedStack with ValueKey(authKey).
+              // When authKey changes (guest→user, user→guest, etc.) Flutter
+              // tears down the old stack and builds fresh Navigators — no
+              // stale routes.
+              // -----------------------------------------------------------
+              : IndexedStack(
+                  key: ValueKey(authKey),
+                  index: safeIndex,
+                  children: [
+                    // 0 — Home
+                    TabNavigator(
+                      navigatorKey: _navigatorKeys[0],
+                      rootScreen: isUser
+                          ? const UserHomeScreen()
+                          : const PublicHomeScreen(),
+                    ),
+                    // 1 — Candidates
+                    TabNavigator(
+                      navigatorKey: _navigatorKeys[1],
+                      rootScreen: const CandidatesListScreen(),
+                    ),
+                    // 2 — Polling Stations
+                    TabNavigator(
+                      navigatorKey: _navigatorKeys[2],
+                      rootScreen: const PollingStationsScreen(),
+                    ),
+                    // 3 — Notifications
+                    TabNavigator(
+                      navigatorKey: _navigatorKeys[3],
+                      rootScreen: const NotificationsScreen(),
+                    ),
+                    // 4 — Account
+                    TabNavigator(
+                      navigatorKey: _navigatorKeys[4],
+                      rootScreen: const AccountScreen(),
+                    ),
+                  ],
+                ),
 
-          // Admin gets NO bottom nav — the dashboard is the only screen
+          // Admin: no bottom navigation bar (dashboard is the only screen)
           bottomNavigationBar: isAdmin
               ? null
               : Container(
