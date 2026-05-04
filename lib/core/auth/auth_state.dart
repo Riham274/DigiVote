@@ -10,10 +10,9 @@ class AuthNotifier extends ChangeNotifier {
   bool get isLoggedIn => _isLoggedIn;
   UserModel? get currentUser => _currentUser;
 
-  void login(String role) {
+  void login(UserModel user) {
     _isLoggedIn = true;
-    _currentUser =
-        role == 'admin' ? UserModel.mockAdmin() : UserModel.mockUser();
+    _currentUser = user;
     notifyListeners();
   }
 

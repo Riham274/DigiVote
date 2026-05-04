@@ -6,16 +6,33 @@ class UserModel {
   final String address;
   final String role;
   final String profileImage;
+  final bool hasVoted;
+  final String faceImageBase64;
 
   UserModel({
     required this.name,
     required this.nationalId,
     required this.birthDate,
-    required this.gender,
-    required this.address,
-    required this.role,
+    this.gender = '',
+    this.address = '',
+    this.role = 'user',
     this.profileImage = 'assets/images/image_6.jpg',
+    this.hasVoted = false,
+    this.faceImageBase64 = '',
   });
+
+  factory UserModel.fromFirestore(String nationalId, Map<String, dynamic> data) {
+    return UserModel(
+      name: data['full_name'] as String? ?? '',
+      nationalId: nationalId,
+      birthDate: data['date_of_birth'] as String? ?? '',
+      gender: data['gender'] as String? ?? '',
+      address: data['address'] as String? ?? '',
+      role: data['role'] as String? ?? 'user',
+      hasVoted: data['has_voted'] as bool? ?? false,
+      faceImageBase64: data['face_image_base64'] as String? ?? '',
+    );
+  }
 
   static UserModel mockUser() => UserModel(
     name: 'أحمد بن عبدالله العتيبي',

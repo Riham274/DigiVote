@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "838507905378",
+    "project_id": "univote-b353a",
+    "storage_bucket": "univote-b353a.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:838507905378:android:4c0ea3f8d7914730162c3b",
+        "android_client_info": {
+          "package_name": "com.example.univote_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA_CAaeREXPmszSDWMrn5XZfDjmXuiku-8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
