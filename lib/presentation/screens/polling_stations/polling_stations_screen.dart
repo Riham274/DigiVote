@@ -108,8 +108,8 @@ class PollingStationsScreen extends StatelessWidget {
             if (isAdmin)
               Container(
                 margin: const EdgeInsets.only(bottom: 20),
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 16, vertical: 12),
                 decoration: BoxDecoration(
                   color: AppColors.primaryContainer.withOpacity(0.07),
                   borderRadius: BorderRadius.circular(16),
@@ -134,7 +134,7 @@ class PollingStationsScreen extends StatelessWidget {
                 ),
               ),
 
-            // ── Section title ────────────────────────────────────────────
+            // ── Section title ─────────────────────────────────────────────
             const Text(
               'المراكز المتاحة في منطقتك',
               style: TextStyle(
@@ -145,7 +145,7 @@ class PollingStationsScreen extends StatelessWidget {
             ),
             const SizedBox(height: 16),
 
-            // ── Firestore list ───────────────────────────────────────────
+            // ── Firestore list ────────────────────────────────────────────
             StreamBuilder<QuerySnapshot>(
               stream: FirebaseFirestore.instance
                   .collection('voting_center')
@@ -178,15 +178,19 @@ class PollingStationsScreen extends StatelessWidget {
 
                 return Column(
                   children: docs.map((doc) {
-                    final data = doc.data() as Map<String, dynamic>;
+                    final d = doc.data() as Map<String, dynamic>;
                     return Padding(
                       padding: const EdgeInsets.only(bottom: 16),
                       child: _VotingCenterCard(
-                        centerName: data['center_name'] as String? ?? '',
-                        city: data['city'] as String? ?? '',
-                        address: data['address'] as String? ?? '',
-                        latitude: _toDouble(data['latitude']),
-                        longitude: _toDouble(data['longitude']),
+                        centerName: d['center_name'] as String? ?? '',
+                        city: d['city'] as String? ?? '',
+                        address: d['address'] as String? ?? '',
+                        latitude: _toDouble(d['latitude']),
+                        longitude: _toDouble(d['longitude']),
+                        status: d['status'] as String? ?? '',
+                        waitingTime: d['waiting_time'] as String? ?? '',
+                        openingHours: d['opening_hours'] as String? ?? '',
+                        image: d['image'] as String? ?? '',
                       ),
                     );
                   }).toList(),
@@ -232,6 +236,10 @@ class _VotingCenterCard extends StatelessWidget {
   final String address;
   final double latitude;
   final double longitude;
+  final String status;
+  final String waitingTime;
+  final String openingHours;
+  final String image;
 
   const _VotingCenterCard({
     required this.centerName,
@@ -239,7 +247,16 @@ class _VotingCenterCard extends StatelessWidget {
     required this.address,
     required this.latitude,
     required this.longitude,
+    required this.status,
+    required this.waitingTime,
+    required this.openingHours,
+    required this.image,
   });
+
+  bool get _isOpen {
+    final s = status.toLowerCase();
+    return s == 'open' || s == 'مفتوح';
+  }
 
   Future<void> _openMaps() async {
     final uri = Uri.parse(
@@ -257,64 +274,83 @@ class _VotingCenterCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(24),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
-            blurRadius: 12,
-            offset: const Offset(0, 5),
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
           ),
         ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ── Placeholder image header ─────────────────────────────────
+          // ── Image header ────────────────────────────────────────────
           ClipRRect(
             borderRadius:
                 const BorderRadius.vertical(top: Radius.circular(24)),
-            child: Container(
-              height: 120,
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [Color(0xFF000613), Color(0xFF001F3F)],
-                  begin: Alignment.topRight,
-                  end: Alignment.bottomLeft,
-                ),
-              ),
+            child: SizedBox(
+              height: 150,
               child: Stack(
+                fit: StackFit.expand,
                 children: [
-                  // Pattern overlay
+                  // Image or placeholder
+                  image.isNotEmpty
+                      ? Image.network(
+                          image,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => _placeholder(),
+                          loadingBuilder: (_, child, prog) =>
+                              prog == null ? child : _placeholder(),
+                        )
+                      : _placeholder(),
+
+                  // Dark gradient overlay (bottom)
                   Positioned.fill(
-                    child: Opacity(
-                      opacity: 0.06,
-                      child: Icon(
-                        Icons.account_balance,
-                        size: 180,
-                        color: Colors.white,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            Colors.transparent,
+                            Colors.black.withOpacity(0.45),
+                          ],
+                          stops: const [0.4, 1.0],
+                        ),
                       ),
                     ),
                   ),
-                  // City badge bottom-right
-                  if (city.isNotEmpty)
-                    Positioned(
-                      bottom: 12,
-                      right: 12,
+
+                  // Distance / GPS badge — top left
+                  Positioned(
+                    top: 12,
+                    left: 12,
+                    child: GestureDetector(
+                      onTap: _openMaps,
                       child: Container(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 6),
+                            horizontal: 10, vertical: 6),
                         decoration: BoxDecoration(
                           color: Colors.white,
-                          borderRadius: BorderRadius.circular(16),
+                          borderRadius: BorderRadius.circular(14),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.12),
+                              blurRadius: 6,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
                         ),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Icon(Icons.location_city,
-                                size: 13, color: Color(0xFF001F3F)),
+                            const Icon(Icons.near_me_rounded,
+                                size: 14, color: Color(0xFF001F3F)),
                             const SizedBox(width: 4),
-                            Text(
-                              city,
-                              style: const TextStyle(
+                            const Text(
+                              'الموقع',
+                              style: TextStyle(
+                                fontSize: 11,
                                 fontWeight: FontWeight.bold,
-                                fontSize: 12,
                                 color: Color(0xFF001F3F),
                               ),
                             ),
@@ -322,24 +358,44 @@ class _VotingCenterCard extends StatelessWidget {
                         ),
                       ),
                     ),
-                  // Center icon
-                  Center(
-                    child: Container(
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.15),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(Icons.how_to_vote,
-                          color: Colors.white, size: 36),
-                    ),
                   ),
+
+                  // City badge — bottom right
+                  if (city.isNotEmpty)
+                    Positioned(
+                      bottom: 12,
+                      right: 12,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 5),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.92),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.location_city,
+                                size: 12, color: Color(0xFF001F3F)),
+                            const SizedBox(width: 4),
+                            Text(
+                              city,
+                              style: const TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF001F3F),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ),
           ),
 
-          // ── Card body ────────────────────────────────────────────────
+          // ── Card body ─────────────────────────────────────────────
           Padding(
             padding: const EdgeInsets.all(20),
             child: Column(
@@ -356,20 +412,86 @@ class _VotingCenterCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
 
-                // Address row
+                // Address
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Icon(Icons.place_outlined,
-                        size: 16, color: Colors.grey[500]),
-                    const SizedBox(width: 6),
+                        size: 15, color: Colors.grey[500]),
+                    const SizedBox(width: 5),
                     Expanded(
                       child: Text(
                         address,
-                        style:
-                            TextStyle(color: Colors.grey[600], fontSize: 13),
+                        style: TextStyle(
+                            color: Colors.grey[600], fontSize: 13),
                       ),
                     ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+
+                // Status row
+                Row(
+                  children: [
+                    // Green/red dot + status text
+                    Container(
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: _isOpen ? Colors.green : Colors.redAccent,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      _isOpen ? 'مفتوح' : 'مغلق',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: _isOpen ? Colors.green : Colors.redAccent,
+                      ),
+                    ),
+
+                    // Waiting time (only when open)
+                    if (_isOpen && waitingTime.isNotEmpty) ...[
+                      const SizedBox(width: 8),
+                      Container(
+                        width: 1,
+                        height: 12,
+                        color: Colors.grey[300],
+                      ),
+                      const SizedBox(width: 8),
+                      Icon(Icons.access_time_rounded,
+                          size: 13, color: Colors.grey[500]),
+                      const SizedBox(width: 4),
+                      Text(
+                        'وقت الانتظار: $waitingTime',
+                        style: TextStyle(
+                            fontSize: 12, color: Colors.grey[600]),
+                      ),
+                    ],
+
+                    // Opening hours (when closed)
+                    if (!_isOpen && openingHours.isNotEmpty) ...[
+                      const SizedBox(width: 8),
+                      Container(
+                        width: 1,
+                        height: 12,
+                        color: Colors.grey[300],
+                      ),
+                      const SizedBox(width: 8),
+                      Icon(Icons.schedule_rounded,
+                          size: 13, color: Colors.grey[500]),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          'يفتح: $openingHours',
+                          style: TextStyle(
+                              fontSize: 12, color: Colors.grey[600]),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
                   ],
                 ),
                 const SizedBox(height: 16),
@@ -401,4 +523,25 @@ class _VotingCenterCard extends StatelessWidget {
       ),
     );
   }
+
+  Widget _placeholder() => Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Color(0xFF000613), Color(0xFF001F3F)],
+            begin: Alignment.topRight,
+            end: Alignment.bottomLeft,
+          ),
+        ),
+        child: Center(
+          child: Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.15),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.how_to_vote,
+                color: Colors.white, size: 36),
+          ),
+        ),
+      );
 }
