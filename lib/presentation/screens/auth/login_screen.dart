@@ -39,27 +39,56 @@ class _LoginScreenState extends State<LoginScreen> {
     });
 
     try {
-      final doc = await FirebaseFirestore.instance
+      // ── 1. Check admins collection first ──────────────────────────
+      final adminDoc = await FirebaseFirestore.instance
+          .collection('admins')
+          .doc(nationalId)
+          .get();
+
+      if (!mounted) return;
+
+      if (adminDoc.exists) {
+        final adminData = adminDoc.data()!;
+        final storedPassword = adminData['password'] as String? ?? '';
+        final role = adminData['role'] as String? ?? '';
+
+        if (password != storedPassword) {
+          setState(() => _errorMessage = 'كلمة المرور غير صحيحة');
+          return;
+        }
+        if (role != 'admin') {
+          setState(() => _errorMessage = 'رقم الهوية غير صحيح');
+          return;
+        }
+
+        final admin = UserModel.fromFirestore(adminDoc.id, adminData);
+        AuthStateWidget.of(context).login(admin);
+        Navigator.pop(context);
+        return;
+      }
+
+      // ── 2. Check voters collection ────────────────────────────────
+      final voterDoc = await FirebaseFirestore.instance
           .collection('voters')
           .doc(nationalId)
           .get();
 
       if (!mounted) return;
 
-      if (!doc.exists) {
+      if (!voterDoc.exists) {
         setState(() => _errorMessage = 'رقم الهوية غير صحيح');
         return;
       }
 
-      final data = doc.data()!;
-      final storedPassword = data['password'] as String? ?? '';
+      final voterData = voterDoc.data()!;
+      final storedPassword = voterData['password'] as String? ?? '';
 
       if (password != storedPassword) {
         setState(() => _errorMessage = 'كلمة المرور غير صحيحة');
         return;
       }
 
-      final voter = UserModel.fromFirestore(doc.id, data);
+      final voter = UserModel.fromFirestore(voterDoc.id, voterData);
       AuthStateWidget.of(context).login(voter);
       Navigator.pop(context);
     } catch (_) {
