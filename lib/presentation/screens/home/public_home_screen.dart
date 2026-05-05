@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../auth/login_screen.dart';
+import '../voting/voting_screen.dart';
+import '../../../core/auth/auth_state.dart';
 
 class PublicHomeScreen extends StatelessWidget {
   const PublicHomeScreen({super.key});
@@ -38,26 +40,49 @@ class PublicHomeScreen extends StatelessWidget {
                 ],
               ),
               actions: [
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-                  child: ElevatedButton(
-                    onPressed: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (context) => const LoginScreen()),
+                Builder(
+                  builder: (ctx) {
+                    final auth = AuthStateWidget.of(ctx);
+                    if (auth.isLoggedIn && auth.currentUser != null) {
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                        child: Center(
+                          child: Text(
+                            'أهلاً، ${auth.currentUser!.name}',
+                            style: const TextStyle(
+                              color: Color(0xFF001F3F),
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ),
                       );
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF000613),
-                      foregroundColor: Colors.white,
-                      elevation: 0,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(20),
+                    }
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16.0, vertical: 8.0),
+                      child: ElevatedButton(
+                        onPressed: () => Navigator.push(
+                          ctx,
+                          MaterialPageRoute(
+                              builder: (_) => const LoginScreen()),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF000613),
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          padding:
+                              const EdgeInsets.symmetric(horizontal: 24),
+                        ),
+                        child: const Text('تسجيل الدخول',
+                            style:
+                                TextStyle(fontWeight: FontWeight.bold)),
                       ),
-                      padding: const EdgeInsets.symmetric(horizontal: 24),
-                    ),
-                    child: const Text("تسجيل الدخول", style: TextStyle(fontWeight: FontWeight.bold)),
-                  ),
+                    );
+                  },
                 ),
               ],
             ),
@@ -116,6 +141,32 @@ class PublicHomeScreen extends StatelessWidget {
                             style: TextStyle(
                               color: Colors.white.withOpacity(0.8),
                               fontSize: 14,
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+                          SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton.icon(
+                              onPressed: () => Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                    builder: (_) => const VotingScreen()),
+                              ),
+                              icon: const Icon(Icons.how_to_vote_rounded, size: 20),
+                              label: const Text(
+                                'صوّت الآن',
+                                style: TextStyle(
+                                    fontWeight: FontWeight.bold, fontSize: 16),
+                              ),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.white,
+                                foregroundColor: const Color(0xFF001F3F),
+                                elevation: 0,
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 14),
+                                shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(16)),
+                              ),
                             ),
                           ),
                         ],
