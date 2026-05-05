@@ -1,6 +1,7 @@
 class Candidate {
   final String id;
   final String name;
+  final String nameAr;
   final String dateOfBirth;
   final String description;
   final String affiliation;
@@ -13,6 +14,7 @@ class Candidate {
   const Candidate({
     required this.id,
     required this.name,
+    required this.nameAr,
     required this.dateOfBirth,
     required this.description,
     required this.affiliation,
@@ -27,6 +29,7 @@ class Candidate {
     return Candidate(
       id: id,
       name: data['name'] as String? ?? '',
+      nameAr: data['name_ar'] as String? ?? '',
       dateOfBirth: data['date_of_birth'] as String? ?? '',
       description: data['description'] as String? ?? '',
       affiliation: data['affiliation'] as String? ?? '',

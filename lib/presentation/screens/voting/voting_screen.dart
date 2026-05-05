@@ -24,6 +24,7 @@ class VotingScreen extends StatefulWidget {
 class _VotingScreenState extends State<VotingScreen> {
   _DeviceStatus _deviceStatus = _DeviceStatus.checking;
   _VoteState _voteState = _VoteState.idle;
+  bool _alreadyVoted = false;
   Candidate? _selected;
   final FlutterTts _tts = FlutterTts();
 
@@ -94,8 +95,29 @@ class _VotingScreenState extends State<VotingScreen> {
       setState(() => _deviceStatus = isAuthorized
           ? _DeviceStatus.authorized
           : _DeviceStatus.denied);
+
+      if (isAuthorized) await _checkVoteStatus();
     } catch (_) {
       if (mounted) setState(() => _deviceStatus = _DeviceStatus.denied);
+    }
+  }
+
+  Future<void> _checkVoteStatus() async {
+    try {
+      final nationalId =
+          AuthStateWidget.of(context).currentUser?.nationalId ?? '';
+      if (nationalId.isEmpty) return;
+
+      final doc = await FirebaseFirestore.instance
+          .collection('voters')
+          .doc(nationalId)
+          .get();
+
+      final hasVoted = doc.data()?['has_voted'] as bool? ?? false;
+      if (!mounted) return;
+      if (hasVoted) setState(() => _alreadyVoted = true);
+    } catch (_) {
+      // اذا فشل التحقق نسمح بالتصويت
     }
   }
 
@@ -229,11 +251,13 @@ class _VotingScreenState extends State<VotingScreen> {
       child: switch (_deviceStatus) {
         _DeviceStatus.checking => _buildChecking(),
         _DeviceStatus.denied   => _buildDenied(),
-        _DeviceStatus.authorized => switch (_voteState) {
-            _VoteState.success    => _buildSuccess(),
-            _VoteState.submitting => _buildSubmitting(),
-            _VoteState.idle       => _buildVoting(),
-          },
+        _DeviceStatus.authorized => _alreadyVoted
+            ? _buildAlreadyVoted()
+            : switch (_voteState) {
+                _VoteState.success    => _buildSuccess(),
+                _VoteState.submitting => _buildSubmitting(),
+                _VoteState.idle       => _buildVoting(),
+              },
       },
     );
   }
@@ -295,6 +319,69 @@ class _VotingScreenState extends State<VotingScreen> {
                   style: TextStyle(
                     color: Colors.white70,
                     fontSize: 16,
+                    height: 1.7,
+                  ),
+                ),
+                const SizedBox(height: 48),
+                OutlinedButton.icon(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.arrow_forward_rounded,
+                      color: Colors.white54),
+                  label: const Text('العودة',
+                      style: TextStyle(color: Colors.white54)),
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: Colors.white24),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16)),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 28, vertical: 14),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ── Already voted screen ──────────────────────────────────────────────────
+
+  Widget _buildAlreadyVoted() {
+    return Scaffold(
+      backgroundColor: const Color(0xFF000613),
+      body: SafeArea(
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(40),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(28),
+                  decoration: BoxDecoration(
+                    color: Colors.amber.withOpacity(0.12),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.how_to_vote_rounded,
+                      size: 72, color: Colors.amber),
+                ),
+                const SizedBox(height: 32),
+                const Text(
+                  'لقد صوّتت مسبقاً',
+                  style: TextStyle(
+                    color: Colors.amber,
+                    fontSize: 24,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'يُسمح لكل مواطن بالتصويت مرة واحدة فقط.\nشكراً لمشاركتك في العملية الديمقراطية.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.white70,
+                    fontSize: 15,
                     height: 1.7,
                   ),
                 ),
@@ -516,7 +603,11 @@ class _VotingScreenState extends State<VotingScreen> {
                         isSelected: _selected?.id == candidates[i].id,
                         onSelect: () =>
                             setState(() => _selected = candidates[i]),
-                        onSpeak: () => _speak(candidates[i].name),
+                        onSpeak: () {
+                          final ar = candidates[i].nameAr;
+                          final en = candidates[i].name;
+                          _speak(ar.isNotEmpty ? '$ar، $en' : en);
+                        },
                       ),
                 );
               },
