@@ -1,61 +1,74 @@
 import 'package:flutter/material.dart';
+import '../polling_stations/nearest_center_screen.dart';
 
 class NotificationsScreen extends StatelessWidget {
   const NotificationsScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFF4F6F9),
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        title: const Text(
-          "الإشعارات",
-          style: TextStyle(color: Color(0xFF001F3F), fontWeight: FontWeight.bold),
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: Scaffold(
+        backgroundColor: const Color(0xFFF4F6F9),
+        appBar: AppBar(
+          backgroundColor: Colors.white,
+          elevation: 0,
+          title: const Text(
+            'الإشعارات',
+            style: TextStyle(
+                color: Color(0xFF001F3F), fontWeight: FontWeight.bold),
+          ),
+          centerTitle: true,
         ),
-        centerTitle: true,
-      ),
-      body: ListView(
-        padding: const EdgeInsets.all(24.0),
-        children: [
-          _buildNotificationItem(
-            icon: Icons.campaign,
-            title: "تحديثات الحملات الانتخابية",
-            description: "قائمة المستقبل أضافت ندوة جديدة يوم الخميس القادم.",
-            time: "منذ ساعتين",
-            color: Colors.blue,
-          ),
-          const SizedBox(height: 16),
-          _buildNotificationItem(
-            icon: Icons.event,
-            title: "تذكير بموعد الانتخابات",
-            description: "تبقى 3 أيام على بدء التصويت لاختيار ممثليك.",
-            time: "منذ 5 ساعات",
-            color: Colors.orange,
-          ),
-          const SizedBox(height: 16),
-          _buildNotificationItem(
-            icon: Icons.announcement,
-            title: "إعلان هام",
-            description: "تم تحديث أماكن مراكز الاقتراع. يرجى مراجعة الدليل.",
-            time: "الأمس",
-            color: Colors.red,
-          ),
-          const SizedBox(height: 16),
-          _buildNotificationItem(
-            icon: Icons.person_add,
-            title: "مرشح جديد",
-            description: "تم اعتماد ترشح الأستاذ محمود علي في الدائرة الثانية.",
-            time: "الأمس",
-            color: Colors.green,
-          ),
-        ],
+        body: ListView(
+          padding: const EdgeInsets.all(20),
+          children: [
+            // ── Live nearest center card ─────────────────────────────
+            const NearestCenterNotifCard(),
+            const SizedBox(height: 20),
+
+            // ── Static notifications ─────────────────────────────────
+            _notifItem(
+              icon: Icons.campaign,
+              title: 'تحديثات الحملات الانتخابية',
+              description:
+                  'قائمة المستقبل أضافت ندوة جديدة يوم الخميس القادم.',
+              time: 'منذ ساعتين',
+              color: Colors.blue,
+            ),
+            const SizedBox(height: 16),
+            _notifItem(
+              icon: Icons.event,
+              title: 'تذكير بموعد الانتخابات',
+              description: 'تبقى 3 أيام على بدء التصويت لاختيار ممثليك.',
+              time: 'منذ 5 ساعات',
+              color: Colors.orange,
+            ),
+            const SizedBox(height: 16),
+            _notifItem(
+              icon: Icons.announcement,
+              title: 'إعلان هام',
+              description:
+                  'تم تحديث أماكن مراكز الاقتراع. يرجى مراجعة الدليل.',
+              time: 'الأمس',
+              color: Colors.red,
+            ),
+            const SizedBox(height: 16),
+            _notifItem(
+              icon: Icons.person_add,
+              title: 'مرشح جديد',
+              description:
+                  'تم اعتماد ترشح الأستاذ محمود علي في الدائرة الثانية.',
+              time: 'الأمس',
+              color: Colors.green,
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildNotificationItem({
+  Widget _notifItem({
     required IconData icon,
     required String title,
     required String description,
@@ -72,7 +85,7 @@ class NotificationsScreen extends StatelessWidget {
             color: Colors.black.withOpacity(0.02),
             blurRadius: 10,
             offset: const Offset(0, 4),
-          )
+          ),
         ],
       ),
       child: Row(
@@ -91,20 +104,19 @@ class NotificationsScreen extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  title,
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                ),
+                Text(title,
+                    style: const TextStyle(
+                        fontWeight: FontWeight.bold, fontSize: 15)),
                 const SizedBox(height: 4),
-                Text(
-                  description,
-                  style: TextStyle(color: Colors.grey[600], fontSize: 13, height: 1.4),
-                ),
+                Text(description,
+                    style: TextStyle(
+                        color: Colors.grey[600],
+                        fontSize: 13,
+                        height: 1.5)),
                 const SizedBox(height: 8),
-                Text(
-                  time,
-                  style: TextStyle(color: Colors.grey[400], fontSize: 11),
-                ),
+                Text(time,
+                    style: TextStyle(
+                        color: Colors.grey[400], fontSize: 11)),
               ],
             ),
           ),
