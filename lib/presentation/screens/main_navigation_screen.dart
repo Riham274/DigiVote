@@ -43,22 +43,14 @@ class MainNavigationScreen extends StatefulWidget {
 class _MainNavigationScreenState extends State<MainNavigationScreen> {
   int _currentIndex = 0;
 
-  // --- User / Guest navigator keys (5 slots) ---
-  final List<GlobalKey<NavigatorState>> _userNavKeys = [
-    GlobalKey<NavigatorState>(), // 0 → Home
-    GlobalKey<NavigatorState>(), // 1 → Candidates
-    GlobalKey<NavigatorState>(), // 2 → Polling Stations
-    GlobalKey<NavigatorState>(), // 3 → Notifications
-    GlobalKey<NavigatorState>(), // 4 → Account
-  ];
-
-  // --- Admin navigator keys (4 slots) ---
-  final List<GlobalKey<NavigatorState>> _adminNavKeys = [
-    GlobalKey<NavigatorState>(), // 0 → Dashboard
-    GlobalKey<NavigatorState>(), // 1 → Add Candidate
-    GlobalKey<NavigatorState>(), // 2 → Add Polling Station
-    GlobalKey<NavigatorState>(), // 3 → Account
-  ];
+  // Separate key sets per auth mode so GlobalKey reparenting never
+  // preserves a stale Navigator (e.g. PublicHomeScreen) after login.
+  final List<GlobalKey<NavigatorState>> _guestNavKeys =
+      List.generate(5, (_) => GlobalKey<NavigatorState>());
+  final List<GlobalKey<NavigatorState>> _userNavKeys =
+      List.generate(5, (_) => GlobalKey<NavigatorState>());
+  final List<GlobalKey<NavigatorState>> _adminNavKeys =
+      List.generate(4, (_) => GlobalKey<NavigatorState>());
 
   @override
   Widget build(BuildContext context) {
@@ -107,7 +99,9 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
       textDirection: TextDirection.rtl,
       child: WillPopScope(
         onWillPop: () async {
-          final keys = isAdmin ? _adminNavKeys : _userNavKeys;
+          final keys = isAdmin
+              ? _adminNavKeys
+              : (isUser ? _userNavKeys : _guestNavKeys);
           final canPop =
               await keys[safeIndex].currentState?.maybePop() ?? false;
           if (!canPop && safeIndex != 0) {
@@ -234,33 +228,34 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
 
   Widget _buildUserStack(String authKey, bool isUser,
       List<int> visibleIndices, int safeIndex) {
+    final keys = isUser ? _userNavKeys : _guestNavKeys;
     return IndexedStack(
       key: ValueKey(authKey),
       index: safeIndex,
       children: [
         // 0 — Home
         TabNavigator(
-          navigatorKey: _userNavKeys[0],
+          navigatorKey: keys[0],
           rootScreen: isUser ? const UserHomeScreen() : const PublicHomeScreen(),
         ),
         // 1 — Candidates
         TabNavigator(
-          navigatorKey: _userNavKeys[1],
+          navigatorKey: keys[1],
           rootScreen: const CandidatesListScreen(),
         ),
         // 2 — Polling Stations
         TabNavigator(
-          navigatorKey: _userNavKeys[2],
+          navigatorKey: keys[2],
           rootScreen: const PollingStationsScreen(),
         ),
         // 3 — Notifications
         TabNavigator(
-          navigatorKey: _userNavKeys[3],
+          navigatorKey: keys[3],
           rootScreen: const NotificationsScreen(),
         ),
         // 4 — Account
         TabNavigator(
-          navigatorKey: _userNavKeys[4],
+          navigatorKey: keys[4],
           rootScreen: const AccountScreen(),
         ),
       ],
