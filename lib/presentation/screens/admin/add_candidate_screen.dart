@@ -12,15 +12,17 @@ class AddCandidateScreen extends StatefulWidget {
 class _AddCandidateScreenState extends State<AddCandidateScreen> {
   final _formKey = GlobalKey<FormState>();
 
-  final _nameEnController     = TextEditingController();
-  final _nameArController     = TextEditingController();
-  final _dobController        = TextEditingController();
-  final _districtController   = TextEditingController();
-  final _qualController       = TextEditingController();
-  final _expController        = TextEditingController();
-  final _descController       = TextEditingController();
-  final _goalsController      = TextEditingController();
-  final _imageController      = TextEditingController();
+  final _nationalIdController  = TextEditingController(); // used as Firestore doc ID
+  final _candidateIdController = TextEditingController(); // e.g. 'cand_001'
+  final _nameArController      = TextEditingController();
+  final _nameEnController      = TextEditingController();
+  final _dobController         = TextEditingController();
+  final _districtController    = TextEditingController();
+  final _qualController        = TextEditingController();
+  final _expController         = TextEditingController();
+  final _descController        = TextEditingController();
+  final _goalsController       = TextEditingController();
+  final _imageController       = TextEditingController();
 
   String? _affiliation;
   bool _isSaving = false;
@@ -36,8 +38,10 @@ class _AddCandidateScreenState extends State<AddCandidateScreen> {
 
   @override
   void dispose() {
-    _nameEnController.dispose();
+    _nationalIdController.dispose();
+    _candidateIdController.dispose();
     _nameArController.dispose();
+    _nameEnController.dispose();
     _dobController.dispose();
     _districtController.dispose();
     _qualController.dispose();
@@ -59,7 +63,13 @@ class _AddCandidateScreenState extends State<AddCandidateScreen> {
           .where((e) => e.isNotEmpty)
           .toList();
 
-      await FirebaseFirestore.instance.collection('candidates').add({
+      final nationalId = _nationalIdController.text.trim();
+      // Use national ID as the Firestore document ID
+      await FirebaseFirestore.instance
+          .collection('candidates')
+          .doc(nationalId)
+          .set({
+        'candidate_id':   _candidateIdController.text.trim(),
         'name':           _nameEnController.text.trim(),
         'name_ar':        _nameArController.text.trim(),
         'date_of_birth':  _dobController.text.trim(),
@@ -154,6 +164,21 @@ class _AddCandidateScreenState extends State<AddCandidateScreen> {
 
                 // ── Section: Basic Info ──────────────────────────────────
                 _sectionCard(children: [
+                  _field(
+                    label: 'الرقم الوطني للمرشح *',
+                    hint: '1023456789',
+                    controller: _nationalIdController,
+                    keyboardType: TextInputType.number,
+                    validator: _required,
+                  ),
+                  const SizedBox(height: 20),
+                  _field(
+                    label: 'معرّف المرشح *',
+                    hint: 'cand_001',
+                    controller: _candidateIdController,
+                    validator: _required,
+                  ),
+                  const SizedBox(height: 20),
                   _field(
                     label: 'الاسم بالعربية *',
                     hint: 'أحمد محمد العمري',

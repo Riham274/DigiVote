@@ -89,6 +89,54 @@ class _LoginScreenState extends State<LoginScreen> {
       }
 
       final voter = UserModel.fromFirestore(voterDoc.id, voterData);
+
+      // ── Block if already voted ───────────────────────────────────
+      if (voter.hasVoted) {
+        await showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (ctx) => Directionality(
+            textDirection: TextDirection.rtl,
+            child: AlertDialog(
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(24)),
+              backgroundColor: Colors.white,
+              icon: const Icon(Icons.how_to_vote_rounded,
+                  color: Color(0xFF001F3F), size: 48),
+              title: const Text(
+                'شكراً لمشاركتك',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF001F3F)),
+              ),
+              content: const Text(
+                'لقد قمت بالتصويت مسبقاً، شكراً لمشاركتك في العملية الديمقراطية.',
+                textAlign: TextAlign.center,
+                style: TextStyle(height: 1.6, fontSize: 14),
+              ),
+              actionsAlignment: MainAxisAlignment.center,
+              actions: [
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF001F3F),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16)),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 32, vertical: 12),
+                  ),
+                  child: const Text('حسناً',
+                      style: TextStyle(fontWeight: FontWeight.bold)),
+                ),
+              ],
+            ),
+          ),
+        );
+        if (!mounted) return;
+      }
+
       AuthStateWidget.of(context).login(voter);
       Navigator.pop(context);
     } catch (_) {
