@@ -4,6 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/auth/auth_state.dart';
 import '../admin/add_voting_center_screen.dart';
+import 'nearest_center_screen.dart';
 
 class PollingStationsScreen extends StatelessWidget {
   const PollingStationsScreen({super.key});
@@ -74,11 +75,11 @@ class PollingStationsScreen extends StatelessWidget {
                         color: Colors.white, size: 32),
                   ),
                   const SizedBox(width: 16),
-                  const Expanded(
+                  Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
+                        const Text(
                           'خريطة مراكز الاقتراع الوطنية',
                           style: TextStyle(
                             color: Colors.white,
@@ -87,13 +88,45 @@ class PollingStationsScreen extends StatelessWidget {
                             height: 1.4,
                           ),
                         ),
-                        SizedBox(height: 6),
-                        Text(
+                        const SizedBox(height: 6),
+                        const Text(
                           'ابحث عن أقرب مركز اقتراع لك وتوجه إليه في يوم الانتخابات للمشاركة',
                           style: TextStyle(
                             color: Colors.white70,
                             fontSize: 12,
                             height: 1.5,
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        GestureDetector(
+                          onTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                                builder: (_) => const NearestCenterScreen()),
+                          ),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 14, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.18),
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.near_me_rounded,
+                                    color: Colors.white, size: 15),
+                                SizedBox(width: 6),
+                                Text(
+                                  'أقرب مركز إليك',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       ],
@@ -136,7 +169,7 @@ class PollingStationsScreen extends StatelessWidget {
 
             // ── Section title ─────────────────────────────────────────────
             const Text(
-              'المراكز المتاحة في منطقتك',
+              'المراكز المتاحة',
               style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
@@ -503,7 +536,7 @@ class _VotingCenterCard extends StatelessWidget {
                     onPressed: _openMaps,
                     icon: const Icon(Icons.navigation_rounded, size: 18),
                     label: const Text(
-                      'الملاحة GPS',
+                      'افتح في الخريطة',
                       style: TextStyle(fontWeight: FontWeight.bold),
                     ),
                     style: ElevatedButton.styleFrom(
