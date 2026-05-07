@@ -10,6 +10,8 @@ import '../../../core/models/candidate_model.dart';
 
 enum _DeviceStatus { checking, authorized, denied }
 
+enum _TokenStatus { loading, available, exhausted }
+
 enum _VoteState { idle, submitting, success }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -23,9 +25,14 @@ class VotingScreen extends StatefulWidget {
 
 class _VotingScreenState extends State<VotingScreen> {
   _DeviceStatus _deviceStatus = _DeviceStatus.checking;
-  _VoteState _voteState = _VoteState.idle;
-  bool _alreadyVoted = false;
+  _TokenStatus  _tokenStatus  = _TokenStatus.loading;
+  _VoteState    _voteState    = _VoteState.idle;
+  bool          _alreadyVoted = false;
+
+  String? _tokenDocId;
+  String? _tokenValue;
   Candidate? _selected;
+
   final FlutterTts _tts = FlutterTts();
 
   @override
@@ -54,7 +61,7 @@ class _VotingScreenState extends State<VotingScreen> {
     await _tts.speak(text);
   }
 
-  // ── Device check ─────────────────────────────────────────────────────────
+  // ── Device check ──────────────────────────────────────────────────────────
 
   Future<String> _getDeviceId() async {
     final plugin = DeviceInfoPlugin();
@@ -82,6 +89,7 @@ class _VotingScreenState extends State<VotingScreen> {
     try {
       final deviceId = await _getDeviceId();
       debugPrint('>>> DEVICE ID: $deviceId <<<');
+
       final query = await FirebaseFirestore.instance
           .collection('authorized_devices')
           .where('device_id', isEqualTo: deviceId)
@@ -96,35 +104,57 @@ class _VotingScreenState extends State<VotingScreen> {
           ? _DeviceStatus.authorized
           : _DeviceStatus.denied);
 
-      if (isAuthorized) await _checkVoteStatus();
+      if (isAuthorized) {
+        // Check voter's has_voted from auth state before fetching token
+        final hasVoted =
+            AuthStateWidget.of(context).currentUser?.hasVoted ?? false;
+        if (mounted && hasVoted) {
+          setState(() => _alreadyVoted = true);
+          return;
+        }
+        await _fetchToken();
+      }
     } catch (_) {
       if (mounted) setState(() => _deviceStatus = _DeviceStatus.denied);
     }
   }
 
-  Future<void> _checkVoteStatus() async {
-    try {
-      final nationalId =
-          AuthStateWidget.of(context).currentUser?.nationalId ?? '';
-      if (nationalId.isEmpty) return;
+  // ── Token fetch ───────────────────────────────────────────────────────────
 
-      final doc = await FirebaseFirestore.instance
-          .collection('voters')
-          .doc(nationalId)
+  Future<void> _fetchToken() async {
+    setState(() => _tokenStatus = _TokenStatus.loading);
+    try {
+      final query = await FirebaseFirestore.instance
+          .collection('tokens')
+          .where('used', isEqualTo: false)
+          .limit(1)
           .get();
 
-      final hasVoted = doc.data()?['has_voted'] as bool? ?? false;
       if (!mounted) return;
-      if (hasVoted) setState(() => _alreadyVoted = true);
+
+      if (query.docs.isEmpty) {
+        setState(() => _tokenStatus = _TokenStatus.exhausted);
+        return;
+      }
+
+      final doc = query.docs.first;
+      _tokenDocId = doc.id;
+      // The token value — fall back to the document ID if field is absent
+      _tokenValue = doc.data()['token'] as String? ?? doc.id;
+      setState(() => _tokenStatus = _TokenStatus.available);
     } catch (_) {
-      // اذا فشل التحقق نسمح بالتصويت
+      if (mounted) setState(() => _tokenStatus = _TokenStatus.exhausted);
     }
   }
 
-  // ── Voting ────────────────────────────────────────────────────────────────
+  // ── Confirm & submit ──────────────────────────────────────────────────────
 
   Future<void> _onConfirmPressed() async {
     if (_selected == null) return;
+
+    final displayName = _selected!.nameAr.isNotEmpty
+        ? _selected!.nameAr
+        : _selected!.name;
 
     final confirmed = await showDialog<bool>(
       context: context,
@@ -132,17 +162,18 @@ class _VotingScreenState extends State<VotingScreen> {
       builder: (ctx) => Directionality(
         textDirection: TextDirection.rtl,
         child: AlertDialog(
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(24)),
           backgroundColor: Colors.white,
-          title: Row(
+          title: const Row(
             children: [
-              const Icon(Icons.how_to_vote_rounded,
+              Icon(Icons.how_to_vote_rounded,
                   color: Color(0xFF001F3F), size: 24),
-              const SizedBox(width: 10),
-              const Text('تأكيد التصويت',
+              SizedBox(width: 10),
+              Text('تأكيد التصويت',
                   style: TextStyle(
-                      fontWeight: FontWeight.bold, color: Color(0xFF001F3F))),
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF001F3F))),
             ],
           ),
           content: RichText(
@@ -153,9 +184,10 @@ class _VotingScreenState extends State<VotingScreen> {
               children: [
                 const TextSpan(text: 'هل أنت متأكد من تصويتك للمرشح '),
                 TextSpan(
-                  text: _selected!.name,
+                  text: displayName,
                   style: const TextStyle(
-                      fontWeight: FontWeight.bold, color: Color(0xFF001F3F)),
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF001F3F)),
                 ),
                 const TextSpan(text: '؟'),
               ],
@@ -188,7 +220,8 @@ class _VotingScreenState extends State<VotingScreen> {
                     horizontal: 24, vertical: 12),
               ),
               child: const Text('تأكيد',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                  style: TextStyle(
+                      fontWeight: FontWeight.bold, fontSize: 14)),
             ),
           ],
         ),
@@ -200,27 +233,39 @@ class _VotingScreenState extends State<VotingScreen> {
   }
 
   Future<void> _submitVote() async {
-    // Capture context-dependent values before any async gap
-    final auth = AuthStateWidget.of(context);
-    final nationalId = auth.currentUser?.nationalId ?? '';
-    final candidate = _selected!;
-
     setState(() => _voteState = _VoteState.submitting);
 
     try {
-      await FirebaseFirestore.instance.collection('votes').add({
-        'candidate_id': candidate.id,
-        'candidate_name': candidate.name,
-        'voter_id': nationalId,
-        'timestamp': FieldValue.serverTimestamp(),
-      });
+      final db = FirebaseFirestore.instance;
+      final tokenRef = db.collection('tokens').doc(_tokenDocId!);
+      final candidateId = _selected!.candidateId; // e.g. 'cand_001'
+      final tokenVal = _tokenValue!;
+      final nationalId =
+          AuthStateWidget.of(context).currentUser?.nationalId ?? '';
 
-      if (nationalId.isNotEmpty) {
-        await FirebaseFirestore.instance
-            .collection('voters')
-            .doc(nationalId)
-            .update({'has_voted': true});
-      }
+      // Transaction: re-verify token is still unused, then record vote atomically
+      await db.runTransaction((tx) async {
+        final tokenSnap = await tx.get(tokenRef);
+        if (tokenSnap.data()?['used'] == true) {
+          throw Exception('token_already_used');
+        }
+
+        // Anonymous vote — only candidate_id and token, no personal data
+        tx.set(db.collection('votes').doc(), {
+          'candidate_id': candidateId,
+          'token': tokenVal,
+        });
+
+        tx.update(tokenRef, {'used': true});
+
+        // Mark voter as having voted
+        if (nationalId.isNotEmpty) {
+          tx.update(
+            db.collection('voters').doc(nationalId),
+            {'has_voted': true},
+          );
+        }
+      });
 
       if (!mounted) return;
       setState(() => _voteState = _VoteState.success);
@@ -228,16 +273,18 @@ class _VotingScreenState extends State<VotingScreen> {
       await Future.delayed(const Duration(seconds: 3));
 
       if (!mounted) return;
-      auth.logout();
+      AuthStateWidget.of(context).logout();
       Navigator.of(context).popUntil((r) => r.isFirst);
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
       setState(() => _voteState = _VoteState.idle);
+
+      final msg = e.toString().contains('token_already_used')
+          ? 'تم استخدام هذا الرمز مسبقاً، يرجى التواصل مع المسؤول'
+          : 'حدث خطأ أثناء حفظ التصويت، حاول مجدداً';
+
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('حدث خطأ أثناء حفظ التصويت، حاول مجدداً'),
-          backgroundColor: Colors.redAccent,
-        ),
+        SnackBar(content: Text(msg), backgroundColor: Colors.redAccent),
       );
     }
   }
@@ -250,102 +297,66 @@ class _VotingScreenState extends State<VotingScreen> {
       textDirection: TextDirection.rtl,
       child: switch (_deviceStatus) {
         _DeviceStatus.checking => _buildChecking(),
-        _DeviceStatus.denied   => _buildDenied(),
+        _DeviceStatus.denied => _buildDenied(),
         _DeviceStatus.authorized => _alreadyVoted
             ? _buildAlreadyVoted()
-            : switch (_voteState) {
-                _VoteState.success    => _buildSuccess(),
-                _VoteState.submitting => _buildSubmitting(),
-                _VoteState.idle       => _buildVoting(),
+            : switch (_tokenStatus) {
+                _TokenStatus.loading => _buildTokenLoading(),
+                _TokenStatus.exhausted => _buildTokenExhausted(),
+                _TokenStatus.available => switch (_voteState) {
+                    _VoteState.success => _buildSuccess(),
+                    _VoteState.submitting => _buildSubmitting(),
+                    _VoteState.idle => _buildVoting(),
+                  },
               },
       },
     );
   }
 
-  // ── Checking screen ───────────────────────────────────────────────────────
+  // ── Checking device ───────────────────────────────────────────────────────
 
-  Widget _buildChecking() {
-    return const Scaffold(
-      backgroundColor: Color(0xFFF4F6F9),
+  Widget _buildChecking() => _darkLoadingScreen(
+        'جارٍ التحقق من صلاحية الجهاز...',
+        color: Colors.white,
+      );
+
+  // ── Fetching token ────────────────────────────────────────────────────────
+
+  Widget _buildTokenLoading() => _darkLoadingScreen(
+        'جارٍ تجهيز جلسة التصويت...',
+        color: Colors.white,
+      );
+
+  Widget _darkLoadingScreen(String message, {Color color = Colors.white}) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFF4F6F9),
       body: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            CircularProgressIndicator(color: Color(0xFF001F3F)),
-            SizedBox(height: 24),
-            Text('جارٍ التحقق من صلاحية الجهاز...',
-                style: TextStyle(color: Color(0xFF001F3F), fontSize: 15)),
+            const CircularProgressIndicator(color: Color(0xFF001F3F)),
+            const SizedBox(height: 24),
+            Text(message,
+                style:
+                    const TextStyle(color: Color(0xFF001F3F), fontSize: 15)),
           ],
         ),
       ),
     );
   }
 
-  // ── Denied screen ─────────────────────────────────────────────────────────
+  // ── Denied ────────────────────────────────────────────────────────────────
 
-  Widget _buildDenied() {
-    return Scaffold(
-      backgroundColor: const Color(0xFF000613),
-      body: SafeArea(
-        child: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(40),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(28),
-                  decoration: BoxDecoration(
-                    color: Colors.red.withOpacity(0.12),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(Icons.lock_rounded,
-                      size: 72, color: Colors.redAccent),
-                ),
-                const SizedBox(height: 32),
-                const Text(
-                  'وصول مرفوض',
-                  style: TextStyle(
-                    color: Colors.redAccent,
-                    fontSize: 24,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 0.5,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                const Text(
-                  'هذا الجهاز غير مصرح له بالوصول إلى شاشة التصويت',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: Colors.white70,
-                    fontSize: 16,
-                    height: 1.7,
-                  ),
-                ),
-                const SizedBox(height: 48),
-                OutlinedButton.icon(
-                  onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.arrow_forward_rounded,
-                      color: Colors.white54),
-                  label: const Text('العودة',
-                      style: TextStyle(color: Colors.white54)),
-                  style: OutlinedButton.styleFrom(
-                    side: const BorderSide(color: Colors.white24),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16)),
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 28, vertical: 14),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
+  Widget _buildDenied() => _statusScreen(
+        icon: Icons.lock_rounded,
+        iconColor: Colors.redAccent,
+        iconBg: Colors.red.withOpacity(0.12),
+        title: 'وصول مرفوض',
+        titleColor: Colors.redAccent,
+        message: 'هذا الجهاز غير مصرح له بالوصول إلى شاشة التصويت',
+      );
 
-  // ── Already voted screen ──────────────────────────────────────────────────
+  // ── Already voted ─────────────────────────────────────────────────────────
 
   Widget _buildAlreadyVoted() {
     return Scaffold(
@@ -360,7 +371,7 @@ class _VotingScreenState extends State<VotingScreen> {
                 Container(
                   padding: const EdgeInsets.all(28),
                   decoration: BoxDecoration(
-                    color: Colors.amber.withOpacity(0.12),
+                    color: Colors.amber.withOpacity(0.15),
                     shape: BoxShape.circle,
                   ),
                   child: const Icon(Icons.how_to_vote_rounded,
@@ -370,20 +381,16 @@ class _VotingScreenState extends State<VotingScreen> {
                 const Text(
                   'لقد صوّتت مسبقاً',
                   style: TextStyle(
-                    color: Colors.amber,
-                    fontSize: 24,
-                    fontWeight: FontWeight.w900,
-                  ),
+                      color: Colors.amber,
+                      fontSize: 24,
+                      fontWeight: FontWeight.w900),
                 ),
                 const SizedBox(height: 16),
                 const Text(
-                  'يُسمح لكل مواطن بالتصويت مرة واحدة فقط.\nشكراً لمشاركتك في العملية الديمقراطية.',
+                  'سبق أن شاركت في هذه الانتخابات.\nشكراً لك على مشاركتك في العملية الديمقراطية.',
                   textAlign: TextAlign.center,
                   style: TextStyle(
-                    color: Colors.white70,
-                    fontSize: 15,
-                    height: 1.7,
-                  ),
+                      color: Colors.white70, fontSize: 15, height: 1.7),
                 ),
                 const SizedBox(height: 48),
                 OutlinedButton.icon(
@@ -408,7 +415,78 @@ class _VotingScreenState extends State<VotingScreen> {
     );
   }
 
-  // ── Submitting screen ─────────────────────────────────────────────────────
+  // ── No tokens ─────────────────────────────────────────────────────────────
+
+  Widget _buildTokenExhausted() => _statusScreen(
+        icon: Icons.token_rounded,
+        iconColor: Colors.orangeAccent,
+        iconBg: Colors.orange.withOpacity(0.12),
+        title: 'لا توجد رموز متاحة',
+        titleColor: Colors.orangeAccent,
+        message:
+            'لا توجد رموز تصويت متاحة حالياً،\nيرجى التواصل مع المسؤول',
+      );
+
+  // ── Shared status screen ──────────────────────────────────────────────────
+
+  Widget _statusScreen({
+    required IconData icon,
+    required Color iconColor,
+    required Color iconBg,
+    required String title,
+    required Color titleColor,
+    required String message,
+  }) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF000613),
+      body: SafeArea(
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(40),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(28),
+                  decoration:
+                      BoxDecoration(color: iconBg, shape: BoxShape.circle),
+                  child: Icon(icon, size: 72, color: iconColor),
+                ),
+                const SizedBox(height: 32),
+                Text(title,
+                    style: TextStyle(
+                        color: titleColor,
+                        fontSize: 24,
+                        fontWeight: FontWeight.w900)),
+                const SizedBox(height: 16),
+                Text(message,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                        color: Colors.white70, fontSize: 15, height: 1.7)),
+                const SizedBox(height: 48),
+                OutlinedButton.icon(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.arrow_forward_rounded,
+                      color: Colors.white54),
+                  label: const Text('العودة',
+                      style: TextStyle(color: Colors.white54)),
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: Colors.white24),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16)),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 28, vertical: 14),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ── Submitting ────────────────────────────────────────────────────────────
 
   Widget _buildSubmitting() {
     return const Scaffold(
@@ -430,7 +508,7 @@ class _VotingScreenState extends State<VotingScreen> {
     );
   }
 
-  // ── Success screen ────────────────────────────────────────────────────────
+  // ── Success ───────────────────────────────────────────────────────────────
 
   Widget _buildSuccess() {
     return Scaffold(
@@ -455,35 +533,28 @@ class _VotingScreenState extends State<VotingScreen> {
                 const Text(
                   'تم التصويت بنجاح!',
                   style: TextStyle(
-                    color: Colors.greenAccent,
-                    fontSize: 26,
-                    fontWeight: FontWeight.w900,
-                  ),
+                      color: Colors.greenAccent,
+                      fontSize: 26,
+                      fontWeight: FontWeight.w900),
                 ),
                 const SizedBox(height: 16),
                 const Text(
                   'شكراً لك على تصويتك،\nتمت العملية بنجاح',
                   textAlign: TextAlign.center,
                   style: TextStyle(
-                    color: Colors.white70,
-                    fontSize: 16,
-                    height: 1.7,
-                  ),
+                      color: Colors.white70, fontSize: 16, height: 1.7),
                 ),
                 const SizedBox(height: 40),
                 const SizedBox(
                   width: 36,
                   height: 36,
                   child: CircularProgressIndicator(
-                    color: Colors.white30,
-                    strokeWidth: 3,
-                  ),
+                      color: Colors.white30, strokeWidth: 3),
                 ),
                 const SizedBox(height: 16),
-                const Text(
-                  'سيتم تسجيل الخروج تلقائياً...',
-                  style: TextStyle(color: Colors.white38, fontSize: 13),
-                ),
+                const Text('سيتم تسجيل الخروج تلقائياً...',
+                    style:
+                        TextStyle(color: Colors.white38, fontSize: 13)),
               ],
             ),
           ),
@@ -500,11 +571,9 @@ class _VotingScreenState extends State<VotingScreen> {
       appBar: AppBar(
         backgroundColor: Colors.white,
         elevation: 0,
-        title: const Text(
-          'التصويت الإلكتروني',
-          style: TextStyle(
-              color: Color(0xFF001F3F), fontWeight: FontWeight.bold),
-        ),
+        title: const Text('التصويت الإلكتروني',
+            style: TextStyle(
+                color: Color(0xFF001F3F), fontWeight: FontWeight.bold)),
         centerTitle: true,
         leading: IconButton(
           icon: const Icon(Icons.arrow_forward_rounded,
@@ -514,7 +583,7 @@ class _VotingScreenState extends State<VotingScreen> {
       ),
       body: Column(
         children: [
-          // ── Header banner ───────────────────────────────────────────
+          // ── Header ──────────────────────────────────────────────────
           Container(
             width: double.infinity,
             margin: const EdgeInsets.all(20),
@@ -556,9 +625,10 @@ class _VotingScreenState extends State<VotingScreen> {
                               fontWeight: FontWeight.bold,
                               fontSize: 16)),
                       SizedBox(height: 4),
-                      Text('اختر مرشحاً واحداً فقط ثم اضغط تأكيد التصويت',
-                          style:
-                              TextStyle(color: Colors.white70, fontSize: 12)),
+                      Text(
+                          'اختر مرشحاً واحداً فقط ثم اضغط تأكيد التصويت',
+                          style: TextStyle(
+                              color: Colors.white70, fontSize: 12)),
                     ],
                   ),
                 ),
@@ -574,7 +644,9 @@ class _VotingScreenState extends State<VotingScreen> {
                   .snapshots(),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
+                  return const Center(
+                      child: CircularProgressIndicator(
+                          color: Color(0xFF001F3F)));
                 }
                 if (snapshot.hasError) {
                   return const Center(
@@ -596,19 +668,19 @@ class _VotingScreenState extends State<VotingScreen> {
                 return ListView.separated(
                   padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
                   itemCount: candidates.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 12),
-                  itemBuilder: (_, i) =>
-                      _CandidateTile(
-                        candidate: candidates[i],
-                        isSelected: _selected?.id == candidates[i].id,
-                        onSelect: () =>
-                            setState(() => _selected = candidates[i]),
-                        onSpeak: () {
-                          final ar = candidates[i].nameAr;
-                          final en = candidates[i].name;
-                          _speak(ar.isNotEmpty ? '$ar، $en' : en);
-                        },
-                      ),
+                  separatorBuilder: (_, __) =>
+                      const SizedBox(height: 12),
+                  itemBuilder: (_, i) => _CandidateTile(
+                    candidate: candidates[i],
+                    isSelected: _selected?.id == candidates[i].id,
+                    onSelect: () =>
+                        setState(() => _selected = candidates[i]),
+                    onSpeak: () {
+                      final ar = candidates[i].nameAr;
+                      final en = candidates[i].name;
+                      _speak(ar.isNotEmpty ? '$ar، $en' : en);
+                    },
+                  ),
                 );
               },
             ),
@@ -630,7 +702,8 @@ class _VotingScreenState extends State<VotingScreen> {
             child: SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
-                onPressed: _selected != null ? _onConfirmPressed : null,
+                onPressed:
+                    _selected != null ? _onConfirmPressed : null,
                 icon: const Icon(Icons.check_circle_rounded, size: 22),
                 label: const Text('تأكيد التصويت',
                     style: TextStyle(
@@ -654,7 +727,7 @@ class _VotingScreenState extends State<VotingScreen> {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── Candidate tile ───────────────────────────────────────────────────────────
 
 class _CandidateTile extends StatelessWidget {
   final Candidate candidate;
@@ -671,6 +744,9 @@ class _CandidateTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final displayName =
+        candidate.nameAr.isNotEmpty ? candidate.nameAr : candidate.name;
+
     return GestureDetector(
       onTap: onSelect,
       child: AnimatedContainer(
@@ -697,7 +773,7 @@ class _CandidateTile extends StatelessWidget {
         ),
         child: Row(
           children: [
-            // Radio button
+            // Radio
             Radio<String>(
               value: candidate.id,
               groupValue: isSelected ? candidate.id : null,
@@ -728,19 +804,32 @@ class _CandidateTile extends StatelessWidget {
 
             // Name
             Expanded(
-              child: Text(
-                candidate.name,
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: isSelected
-                      ? const Color(0xFF001F3F)
-                      : const Color(0xFF1E293B),
-                ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    displayName,
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                      color: isSelected
+                          ? const Color(0xFF001F3F)
+                          : const Color(0xFF1E293B),
+                    ),
+                  ),
+                  if (candidate.district.isNotEmpty) ...[
+                    const SizedBox(height: 3),
+                    Text(
+                      candidate.district,
+                      style: const TextStyle(
+                          fontSize: 11, color: Colors.grey),
+                    ),
+                  ],
+                ],
               ),
             ),
 
-            // Speaker icon
+            // Speaker
             IconButton(
               onPressed: onSpeak,
               icon: const Icon(Icons.volume_up_rounded),
@@ -758,6 +847,7 @@ class _CandidateTile extends StatelessWidget {
 
   Widget _avatarFallback() => Container(
         color: const Color(0xFFE8EDF2),
-        child: const Icon(Icons.person, color: Color(0xFF94A3B8), size: 28),
+        child:
+            const Icon(Icons.person, color: Color(0xFF94A3B8), size: 28),
       );
 }

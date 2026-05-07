@@ -1,5 +1,6 @@
 class Candidate {
-  final String id;
+  final String id;           // Firestore document ID (national ID)
+  final String candidateId;  // candidate_id field value e.g. 'cand_001'
   final String name;
   final String nameAr;
   final String dateOfBirth;
@@ -13,6 +14,7 @@ class Candidate {
 
   const Candidate({
     required this.id,
+    required this.candidateId,
     required this.name,
     required this.nameAr,
     required this.dateOfBirth,
@@ -28,6 +30,7 @@ class Candidate {
   factory Candidate.fromFirestore(String id, Map<String, dynamic> data) {
     return Candidate(
       id: id,
+      candidateId: data['candidate_id'] as String? ?? id,
       name: data['name'] as String? ?? '',
       nameAr: data['name_ar'] as String? ?? '',
       dateOfBirth: data['date_of_birth'] as String? ?? '',
