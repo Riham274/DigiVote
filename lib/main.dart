@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -80,6 +81,35 @@ class _UniVoteAppState extends State<UniVoteApp> {
     try {
       final deviceId = await _getDeviceId();
       debugPrint('>>> DEVICE ID: $deviceId <<<');
+
+      // ── DEBUG: show device ID on screen so it can be added to Firebase ──
+      // Remove this block once the device is authorized.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        appMessengerKey.currentState?.showSnackBar(
+          SnackBar(
+            content: Text(
+              'Device ID: $deviceId',
+              style: const TextStyle(
+                fontFamily: 'monospace',
+                fontSize: 13,
+                letterSpacing: 0.4,
+              ),
+            ),
+            duration: const Duration(seconds: 60),
+            backgroundColor: const Color(0xFF0F172A),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12)),
+            action: SnackBarAction(
+              label: 'نسخ',
+              textColor: Colors.greenAccent,
+              onPressed: () =>
+                  Clipboard.setData(ClipboardData(text: deviceId)),
+            ),
+          ),
+        );
+      });
+      // ────────────────────────────────────────────────────────────────────
 
       final query = await FirebaseFirestore.instance
           .collection('authorized_devices')
