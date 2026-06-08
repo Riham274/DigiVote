@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:smooth_page_indicator/smooth_page_indicator.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/auth/auth_state.dart';
 import '../candidates/candidates_list_screen.dart';
@@ -8,19 +10,6 @@ import '../notifications/notifications_screen.dart';
 import '../polling_stations/polling_stations_screen.dart';
 import '../polling_stations/nearest_center_screen.dart';
 import '../voting/voting_screen.dart';
-
-// ─── Local model ──────────────────────────────────────────────────────────────
-
-class _ElectionStats {
-  final int totalVoters;
-  final int votedCount;
-  const _ElectionStats({required this.totalVoters, required this.votedCount});
-
-  double get pct =>
-      totalVoters == 0 ? 0 : (votedCount / totalVoters) * 100;
-}
-
-// ─── Screen ───────────────────────────────────────────────────────────────────
 
 class UserHomeScreen extends StatefulWidget {
   const UserHomeScreen({super.key});
@@ -32,20 +21,30 @@ class UserHomeScreen extends StatefulWidget {
 class _UserHomeScreenState extends State<UserHomeScreen> {
   final PageController _pageCtrl = PageController();
   int _campaignPage = 0;
+  int _docsCount = 0;
+  Timer? _scrollTimer;
   final Set<String> _expandedNews = {};
 
   late final Future<DateTime?> _electionFuture;
-  late final Future<_ElectionStats> _statsFuture;
 
   @override
   void initState() {
     super.initState();
     _electionFuture = _fetchElectionDate();
-    _statsFuture = _fetchStats();
+    _scrollTimer = Timer.periodic(const Duration(seconds: 4), (_) {
+      if (_docsCount < 2 || !mounted) return;
+      final next = (_campaignPage + 1) % _docsCount;
+      _pageCtrl.animateToPage(
+        next,
+        duration: const Duration(milliseconds: 400),
+        curve: Curves.easeInOut,
+      );
+    });
   }
 
   @override
   void dispose() {
+    _scrollTimer?.cancel();
     _pageCtrl.dispose();
     super.dispose();
   }
@@ -58,35 +57,14 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
           .collection('elections_info')
           .doc('current_election')
           .get();
-      debugPrint('🗓️ election doc exists: ${doc.exists}, data: ${doc.data()}');
       if (!doc.exists) return null;
       final raw = doc.data()?['election_date'];
-      debugPrint('🗓️ election_date raw: $raw (${raw.runtimeType})');
       if (raw is Timestamp) return raw.toDate();
       if (raw is String && raw.isNotEmpty) return DateTime.tryParse(raw);
     } catch (e) {
       debugPrint('🔴 election fetch error: $e');
     }
     return null;
-  }
-
-  Future<_ElectionStats> _fetchStats() async {
-    try {
-      final results = await Future.wait([
-        FirebaseFirestore.instance.collection('voters').count().get(),
-        FirebaseFirestore.instance
-            .collection('voters')
-            .where('has_voted', isEqualTo: true)
-            .count()
-            .get(),
-      ]);
-      return _ElectionStats(
-        totalVoters: results[0].count ?? 0,
-        votedCount: results[1].count ?? 0,
-      );
-    } catch (_) {
-      return const _ElectionStats(totalVoters: 0, votedCount: 0);
-    }
   }
 
   // ── Build ─────────────────────────────────────────────────────────────────
@@ -156,7 +134,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
               ],
               const SizedBox(height: 20),
 
-              // ── TOP BANNER — kept exactly as original ──────────────────
+              // ── TOP BANNER ─────────────────────────────────────────────
               _buildTopBanner(context),
               const SizedBox(height: 16),
 
@@ -190,23 +168,6 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
               _sectionTitle('آخر الأخبار', Icons.article_rounded),
               const SizedBox(height: 12),
               _buildNews(),
-              const SizedBox(height: 24),
-
-              // ── Statistics ─────────────────────────────────────────────
-              _sectionTitle('إحصائيات الانتخابات', Icons.bar_chart_rounded),
-              const SizedBox(height: 12),
-              FutureBuilder<_ElectionStats>(
-                future: _statsFuture,
-                builder: (_, snap) {
-                  if (snap.connectionState == ConnectionState.waiting) {
-                    return _shimmer(110);
-                  }
-                  return _buildStatsCard(
-                      snap.data ??
-                          const _ElectionStats(
-                              totalVoters: 0, votedCount: 0));
-                },
-              ),
               const SizedBox(height: 20),
 
               // ── Educational banner ─────────────────────────────────────
@@ -218,7 +179,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
     );
   }
 
-  // ── TOP BANNER (exact copy of original) ──────────────────────────────────
+  // ── TOP BANNER ───────────────────────────────────────────────────────────
 
   Widget _buildTopBanner(BuildContext context) {
     return Container(
@@ -307,7 +268,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
         electionDate.year, electionDate.month, electionDate.day);
     final diff = elDay.difference(today).inDays;
 
-    if (diff < 0) return const SizedBox.shrink(); // past
+    if (diff < 0) return const SizedBox.shrink();
 
     final dateStr =
         '${electionDate.day}/${electionDate.month}/${electionDate.year}';
@@ -336,7 +297,8 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
               ),
             ],
           ),
-          child: isToday ? _countdownToday() : _countdownDays(diff, dateStr),
+          child:
+              isToday ? _countdownToday() : _countdownDays(diff, dateStr),
         ),
       ],
     );
@@ -359,8 +321,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
         SizedBox(height: 6),
         Text(
           'توجه إلى أقرب مركز اقتراع وشارك في صنع المستقبل',
-          style: TextStyle(
-              color: Colors.white70, fontSize: 13, height: 1.5),
+          style: TextStyle(color: Colors.white70, fontSize: 13, height: 1.5),
           textAlign: TextAlign.center,
         ),
       ],
@@ -408,8 +369,8 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
               const SizedBox(height: 4),
               Text(
                 'تاريخ الانتخابات: $dateStr',
-                style: const TextStyle(
-                    color: Colors.white54, fontSize: 12),
+                style:
+                    const TextStyle(color: Colors.white54, fontSize: 12),
               ),
             ],
           ),
@@ -566,8 +527,8 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
                 ),
               ],
             ),
-            child: Icon(icon,
-                color: const Color(0xFF001F3F), size: 26),
+            child:
+                Icon(icon, color: const Color(0xFF001F3F), size: 26),
           ),
           const SizedBox(height: 7),
           Text(
@@ -583,7 +544,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
     );
   }
 
-  // ── Campaigns carousel ────────────────────────────────────────────────────
+  // ── Campaigns carousel (auto-scroll, image_url field) ─────────────────────
 
   Widget _buildCampaigns() {
     return StreamBuilder<QuerySnapshot>(
@@ -591,23 +552,30 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
           .collection('campaigns')
           .snapshots(),
       builder: (context, snap) {
-        if (snap.hasError) {
-          debugPrint('🔴 campaigns error: ${snap.error}');
-        }
         if (snap.connectionState == ConnectionState.waiting) {
           return _shimmer(180);
         }
+        if (snap.hasError) {
+          return _emptyBox('تعذّر تحميل الحملات');
+        }
         final docs = snap.data?.docs ?? [];
-        debugPrint('📣 campaigns: ${docs.length} docs');
         if (docs.isEmpty) return _emptyBox('لا توجد حملات حالياً');
 
-        // Sort by 'order' field in Dart to avoid Firestore index issues
         final sorted = [...docs]..sort((a, b) {
-            final aVal = (a.data() as Map<String, dynamic>)['order'];
-            final bVal = (b.data() as Map<String, dynamic>)['order'];
+            final aVal =
+                (a.data() as Map<String, dynamic>)['order'];
+            final bVal =
+                (b.data() as Map<String, dynamic>)['order'];
             if (aVal == null || bVal == null) return 0;
             return (aVal as num).compareTo(bVal as num);
           });
+
+        // Sync docs count for auto-scroll timer
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && _docsCount != sorted.length) {
+            setState(() => _docsCount = sorted.length);
+          }
+        });
 
         return _carouselContent(sorted);
       },
@@ -618,7 +586,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
     return Column(
       children: [
         SizedBox(
-          height: 180,
+          height: 190,
           child: PageView.builder(
             controller: _pageCtrl,
             itemCount: docs.length,
@@ -630,7 +598,9 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
                 child: _CampaignCard(
                   title: d['title'] as String? ?? '',
                   description: d['description'] as String? ?? '',
-                  image: d['image'] as String? ?? '',
+                  imageUrl: d['image_url'] as String? ??
+                      d['image'] as String? ??
+                      '',
                 ),
               );
             },
@@ -659,25 +629,19 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
 
   Widget _buildNews() {
     return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('news')
-          .snapshots(),
+      stream:
+          FirebaseFirestore.instance.collection('news').snapshots(),
       builder: (context, snap) {
-        if (snap.hasError) {
-          debugPrint('🔴 news error: ${snap.error}');
-        }
         if (snap.connectionState == ConnectionState.waiting) {
           return _shimmer(160);
         }
         final docs = snap.data?.docs ?? [];
-        debugPrint('📰 news: ${docs.length} docs');
         if (docs.isEmpty) return _emptyBox('لا توجد أخبار حالياً');
 
-        // Sort by 'date' field descending in Dart
         final sorted = [...docs]..sort((a, b) {
-            DateTime? aDate = _parseDate(
+            final aDate = _parseDate(
                 (a.data() as Map<String, dynamic>)['date']);
-            DateTime? bDate = _parseDate(
+            final bDate = _parseDate(
                 (b.data() as Map<String, dynamic>)['date']);
             if (aDate == null || bDate == null) return 0;
             return bDate.compareTo(aDate);
@@ -737,81 +701,6 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
     final d = _parseDate(raw);
     if (d == null) return '';
     return '${d.day}/${d.month}/${d.year}';
-  }
-
-  // ── Statistics card ───────────────────────────────────────────────────────
-
-  Widget _buildStatsCard(_ElectionStats stats) {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.04),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: _StatTile(
-                  icon: Icons.people_rounded,
-                  label: 'إجمالي الناخبين',
-                  value: '${stats.totalVoters}',
-                  color: const Color(0xFF001F3F),
-                ),
-              ),
-              Container(
-                  width: 1, height: 50, color: const Color(0xFFE8EDF5)),
-              Expanded(
-                child: _StatTile(
-                  icon: Icons.check_circle_rounded,
-                  label: 'صوّتوا',
-                  value: '${stats.votedCount}',
-                  color: Colors.green,
-                ),
-              ),
-              Container(
-                  width: 1, height: 50, color: const Color(0xFFE8EDF5)),
-              Expanded(
-                child: _StatTile(
-                  icon: Icons.bar_chart_rounded,
-                  label: 'نسبة المشاركة',
-                  value: '${stats.pct.toStringAsFixed(1)}%',
-                  color: Colors.blue,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(8),
-            child: LinearProgressIndicator(
-              value: stats.pct / 100,
-              minHeight: 8,
-              backgroundColor: const Color(0xFFE8EDF5),
-              valueColor: const AlwaysStoppedAnimation<Color>(
-                  Color(0xFF001F3F)),
-            ),
-          ),
-          const SizedBox(height: 6),
-          Align(
-            alignment: AlignmentDirectional.centerStart,
-            child: Text(
-              'نسبة المشاركة: ${stats.pct.toStringAsFixed(1)}%',
-              style: const TextStyle(
-                  fontSize: 11, color: Colors.grey),
-            ),
-          ),
-        ],
-      ),
-    );
   }
 
   // ── Educational banner ────────────────────────────────────────────────────
@@ -901,8 +790,8 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
         ),
         child: Center(
           child: Text(msg,
-              style: const TextStyle(
-                  color: Colors.grey, fontSize: 13)),
+              style:
+                  const TextStyle(color: Colors.grey, fontSize: 13)),
         ),
       );
 }
@@ -912,12 +801,12 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
 class _CampaignCard extends StatelessWidget {
   final String title;
   final String description;
-  final String image;
+  final String imageUrl;
 
   const _CampaignCard({
     required this.title,
     required this.description,
-    required this.image,
+    required this.imageUrl,
   });
 
   @override
@@ -927,11 +816,14 @@ class _CampaignCard extends StatelessWidget {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          // Background
-          image.isNotEmpty
-              ? Image.network(image,
+          // Background image with loading/error fallback
+          imageUrl.isNotEmpty
+              ? CachedNetworkImage(
+                  imageUrl: imageUrl,
                   fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => _bg())
+                  placeholder: (_, __) => _bg(),
+                  errorWidget: (_, __, ___) => _bg(),
+                )
               : _bg(),
 
           // Gradient overlay
@@ -949,7 +841,7 @@ class _CampaignCard extends StatelessWidget {
             ),
           ),
 
-          // Text
+          // Text content
           Positioned(
             bottom: 16,
             right: 16,
@@ -1096,47 +988,6 @@ class _NewsItem extends StatelessWidget {
             padding: EdgeInsets.symmetric(horizontal: 16),
             child: Divider(height: 1, color: Color(0xFFF0F4F8)),
           ),
-      ],
-    );
-  }
-}
-
-// ─── Stat tile ────────────────────────────────────────────────────────────────
-
-class _StatTile extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final String value;
-  final Color color;
-
-  const _StatTile({
-    required this.icon,
-    required this.label,
-    required this.value,
-    required this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Icon(icon, color: color, size: 24),
-        const SizedBox(height: 6),
-        Text(
-          value,
-          style: TextStyle(
-            color: color,
-            fontSize: 20,
-            fontWeight: FontWeight.w900,
-          ),
-        ),
-        const SizedBox(height: 3),
-        Text(
-          label,
-          textAlign: TextAlign.center,
-          style: const TextStyle(
-              color: Colors.grey, fontSize: 10),
-        ),
       ],
     );
   }

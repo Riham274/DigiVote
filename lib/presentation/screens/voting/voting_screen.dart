@@ -348,12 +348,13 @@ class _VotingScreenState extends State<VotingScreen> {
   // ── Denied ────────────────────────────────────────────────────────────────
 
   Widget _buildDenied() => _statusScreen(
-        icon: Icons.lock_rounded,
-        iconColor: Colors.redAccent,
-        iconBg: Colors.red.withOpacity(0.12),
-        title: 'وصول مرفوض',
-        titleColor: Colors.redAccent,
-        message: 'هذا الجهاز غير مصرح له بالوصول إلى شاشة التصويت',
+        icon: Icons.how_to_vote_rounded,
+        iconColor: Colors.white60,
+        iconBg: Colors.white.withOpacity(0.07),
+        title: 'التصويت متاح فقط من داخل مركز الاقتراع',
+        titleColor: Colors.white,
+        message:
+            'يمكنك التصويت عبر الجهاز المخصص في أقرب مركز اقتراع معتمد.\n\nتوجّه إلى المركز وأبرز هويتك للموظف المختص.',
       );
 
   // ── Already voted ─────────────────────────────────────────────────────────

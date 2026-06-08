@@ -5,6 +5,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/auth/auth_state.dart';
 import 'add_candidate_screen.dart';
 import 'add_voting_center_screen.dart';
+import 'election_results_screen.dart';
 
 // ─── Data model ───────────────────────────────────────────────────────────────
 
@@ -184,6 +185,18 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                         ),
                       ),
                     ],
+                  ),
+                  const SizedBox(height: 16),
+                  _ActionCard(
+                    title: 'نتائج الانتخابات',
+                    subtitle: 'عرض نتائج وترتيب المرشحين',
+                    icon: Icons.bar_chart_rounded,
+                    color: const Color(0xFF0D7377),
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) => const ElectionResultsScreen()),
+                    ),
                   ),
                   const SizedBox(height: 32),
 

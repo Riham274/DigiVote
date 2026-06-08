@@ -1,6 +1,9 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:image_picker/image_picker.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/services/image_upload_service.dart';
 
 class AddVotingCenterScreen extends StatefulWidget {
   const AddVotingCenterScreen({super.key});
@@ -12,19 +15,22 @@ class AddVotingCenterScreen extends StatefulWidget {
 class _AddVotingCenterScreenState extends State<AddVotingCenterScreen> {
   final _formKey = GlobalKey<FormState>();
 
-  final _nameController         = TextEditingController();
-  final _cityController         = TextEditingController();
-  final _addressController      = TextEditingController();
-  final _latController          = TextEditingController();
-  final _lngController          = TextEditingController();
-  final _waitingTimeController  = TextEditingController();
-  final _openingHoursController = TextEditingController();
-  final _imageController        = TextEditingController();
+  final _nameController    = TextEditingController();
+  final _cityController    = TextEditingController();
+  final _addressController = TextEditingController();
+  final _latController     = TextEditingController();
+  final _lngController     = TextEditingController();
 
   String _status = 'مفتوح';
   bool _isSaving = false;
+  String _statusMsg = 'تأكيد الإضافة';
 
-  static const List<String> _statusOptions = ['مفتوح', 'مغلق', 'قريباً'];
+  // Cross-platform image state
+  XFile? _pickedXFile;
+  Uint8List? _imageBytes;
+  final ImagePicker _picker = ImagePicker();
+
+  static const List<String> _statusOptions = ['مفتوح', 'مغلق'];
 
   @override
   void dispose() {
@@ -33,27 +39,64 @@ class _AddVotingCenterScreenState extends State<AddVotingCenterScreen> {
     _addressController.dispose();
     _latController.dispose();
     _lngController.dispose();
-    _waitingTimeController.dispose();
-    _openingHoursController.dispose();
-    _imageController.dispose();
     super.dispose();
+  }
+
+  Future<void> _pickImage() async {
+    final XFile? picked = await _picker.pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 1024,
+      maxHeight: 1024,
+      imageQuality: 80,
+    );
+    if (picked == null) return;
+    final bytes = await picked.readAsBytes();
+    setState(() {
+      _pickedXFile = picked;
+      _imageBytes = bytes;
+    });
   }
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
 
-    setState(() => _isSaving = true);
+    setState(() {
+      _isSaving = true;
+      _statusMsg = 'جارٍ رفع الصورة...';
+    });
+
     try {
+      String imageUrl = '';
+
+      if (_pickedXFile != null && _imageBytes != null) {
+        final url = await ImageUploadService.uploadBytes(_imageBytes!);
+        if (url == null) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('فشل رفع الصورة، تحقق من الاتصال وحاول مجدداً'),
+              backgroundColor: Colors.redAccent,
+            ),
+          );
+          setState(() {
+            _isSaving = false;
+            _statusMsg = 'تأكيد الإضافة';
+          });
+          return;
+        }
+        imageUrl = url;
+      }
+
+      setState(() => _statusMsg = 'جارٍ الحفظ...');
+
       await FirebaseFirestore.instance.collection('voting_center').add({
-        'center_name':    _nameController.text.trim(),
-        'city':           _cityController.text.trim(),
-        'address':        _addressController.text.trim(),
-        'latitude':       double.tryParse(_latController.text.trim()) ?? 0.0,
-        'longitude':      double.tryParse(_lngController.text.trim()) ?? 0.0,
-        'status':         _status,
-        'waiting_time':   _waitingTimeController.text.trim(),
-        'opening_hours':  _openingHoursController.text.trim(),
-        'image':          _imageController.text.trim(),
+        'center_name': _nameController.text.trim(),
+        'city':        _cityController.text.trim(),
+        'address':     _addressController.text.trim(),
+        'latitude':    double.tryParse(_latController.text.trim()) ?? 0.0,
+        'longitude':   double.tryParse(_lngController.text.trim()) ?? 0.0,
+        'status':      _status,
+        'image_url':   imageUrl,
       });
 
       if (!mounted) return;
@@ -73,7 +116,12 @@ class _AddVotingCenterScreenState extends State<AddVotingCenterScreen> {
         ),
       );
     } finally {
-      if (mounted) setState(() => _isSaving = false);
+      if (mounted) {
+        setState(() {
+          _isSaving = false;
+          _statusMsg = 'تأكيد الإضافة';
+        });
+      }
     }
   }
 
@@ -95,7 +143,8 @@ class _AddVotingCenterScreenState extends State<AddVotingCenterScreen> {
               padding: EdgeInsets.symmetric(horizontal: 16.0),
               child: CircleAvatar(
                 backgroundColor: AppColors.primaryContainer,
-                child: Icon(Icons.admin_panel_settings, color: Colors.white),
+                child:
+                    Icon(Icons.admin_panel_settings, color: Colors.white),
               ),
             )
           ],
@@ -133,7 +182,7 @@ class _AddVotingCenterScreenState extends State<AddVotingCenterScreen> {
                 _sectionCard(children: [
                   _field(
                     label: 'اسم المركز *',
-                    hint: 'مدرسة النهضة الثانوية',
+                    hint: 'مدرسة جنين الثانوية',
                     controller: _nameController,
                     validator: _required,
                   ),
@@ -143,7 +192,7 @@ class _AddVotingCenterScreenState extends State<AddVotingCenterScreen> {
                       Expanded(
                         child: _field(
                           label: 'المدينة *',
-                          hint: 'عمّان',
+                          hint: 'جنين',
                           controller: _cityController,
                           validator: _required,
                         ),
@@ -163,7 +212,7 @@ class _AddVotingCenterScreenState extends State<AddVotingCenterScreen> {
                   const SizedBox(height: 20),
                   _field(
                     label: 'العنوان التفصيلي *',
-                    hint: 'شارع الملك عبدالله، الدوار الثالث',
+                    hint: 'جنين، شارع حيفا',
                     controller: _addressController,
                     maxLines: 2,
                     validator: _required,
@@ -171,7 +220,7 @@ class _AddVotingCenterScreenState extends State<AddVotingCenterScreen> {
                 ]),
                 const SizedBox(height: 24),
 
-                // ── Section: Location ────────────────────────────────────
+                // ── Section: Coordinates ─────────────────────────────────
                 _sectionCard(children: [
                   Row(
                     children: [
@@ -191,7 +240,7 @@ class _AddVotingCenterScreenState extends State<AddVotingCenterScreen> {
                       Expanded(
                         child: _field(
                           label: 'خط العرض (Latitude)',
-                          hint: '31.9539',
+                          hint: '32.4640',
                           controller: _latController,
                           keyboardType: const TextInputType.numberWithOptions(
                               decimal: true),
@@ -202,7 +251,7 @@ class _AddVotingCenterScreenState extends State<AddVotingCenterScreen> {
                       Expanded(
                         child: _field(
                           label: 'خط الطول (Longitude)',
-                          hint: '35.9106',
+                          hint: '35.2960',
                           controller: _lngController,
                           keyboardType: const TextInputType.numberWithOptions(
                               decimal: true),
@@ -214,26 +263,17 @@ class _AddVotingCenterScreenState extends State<AddVotingCenterScreen> {
                 ]),
                 const SizedBox(height: 24),
 
-                // ── Section: Details ─────────────────────────────────────
+                // ── Section: Image Picker ────────────────────────────────
                 _sectionCard(children: [
-                  _field(
-                    label: 'ساعات العمل',
-                    hint: '8:00 ص - 5:00 م',
-                    controller: _openingHoursController,
+                  const Text(
+                    'صورة المركز',
+                    style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.onSurfaceVariant),
                   ),
-                  const SizedBox(height: 20),
-                  _field(
-                    label: 'وقت الانتظار الحالي',
-                    hint: '15 دقيقة',
-                    controller: _waitingTimeController,
-                  ),
-                  const SizedBox(height: 20),
-                  _field(
-                    label: 'رابط صورة المركز',
-                    hint: 'https://...',
-                    controller: _imageController,
-                    keyboardType: TextInputType.url,
-                  ),
+                  const SizedBox(height: 12),
+                  _buildImagePicker(),
                 ]),
                 const SizedBox(height: 32),
 
@@ -300,8 +340,8 @@ class _AddVotingCenterScreenState extends State<AddVotingCenterScreen> {
                                   color: Colors.white, strokeWidth: 2),
                             )
                           : const Icon(Icons.add_task_rounded),
-                      label: Text(
-                          _isSaving ? 'جارٍ الحفظ...' : 'تأكيد الإضافة'),
+                      label:
+                          Text(_isSaving ? _statusMsg : 'تأكيد الإضافة'),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.primary,
                         foregroundColor: Colors.white,
@@ -318,6 +358,83 @@ class _AddVotingCenterScreenState extends State<AddVotingCenterScreen> {
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  // ── Cross-platform image picker widget ────────────────────────────────────
+
+  Widget _buildImagePicker() {
+    final hasImage = _imageBytes != null;
+    return GestureDetector(
+      onTap: _isSaving ? null : _pickImage,
+      child: Container(
+        height: 200,
+        width: double.infinity,
+        decoration: BoxDecoration(
+          color: const Color(0xFFF4F6F9),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: hasImage
+                ? AppColors.primaryContainer
+                : const Color(0xFFCDD5E0),
+            width: 2,
+          ),
+        ),
+        child: hasImage
+            ? Stack(
+                fit: StackFit.expand,
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(14),
+                    child: Image.memory(_imageBytes!, fit: BoxFit.cover),
+                  ),
+                  Positioned(
+                    bottom: 10,
+                    left: 0,
+                    right: 0,
+                    child: Center(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: AppColors.primary.withOpacity(0.85),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: const Text(
+                          'اضغط لتغيير الصورة',
+                          style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              )
+            : Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.add_photo_alternate_rounded,
+                      size: 52, color: Colors.grey[400]),
+                  const SizedBox(height: 10),
+                  Text(
+                    'اختر صورة المركز',
+                    style: TextStyle(
+                      color: Colors.grey[500],
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'اضغط لاختيار صورة من المعرض',
+                    style:
+                        TextStyle(color: Colors.grey[400], fontSize: 12),
+                  ),
+                ],
+              ),
       ),
     );
   }

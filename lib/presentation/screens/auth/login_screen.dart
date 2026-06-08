@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../core/auth/auth_state.dart';
 import '../../../core/models/user_model.dart';
+import '../../../core/services/fcm_service.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -138,6 +139,8 @@ class _LoginScreenState extends State<LoginScreen> {
       }
 
       AuthStateWidget.of(context).login(voter);
+      // Save FCM token so admin can send push notifications to this device
+      FcmService.saveToken(nationalId);
       Navigator.pop(context);
     } catch (_) {
       if (mounted) {
