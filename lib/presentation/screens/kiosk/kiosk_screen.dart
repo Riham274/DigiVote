@@ -4,16 +4,16 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import '../../../core/models/candidate_model.dart';
 
-// ─── Kiosk state machine ──────────────────────────────────────────────────────
+// ─── State machine ─────────────────────────────────────────────────────────────
 
 enum _KioskState {
-  welcome,       // waiting for Raspberry Pi to set status = "occupied"
-  voterCheck,    // booth just became occupied — verifying voter + fetching token
-  alreadyVoted,  // voter has_voted == true — show error then reset
-  noTokens,      // tokens collection exhausted
-  voting,        // show candidates list
+  welcome,       // waiting for Pi to set booth_status → "occupied"
+  voterCheck,    // verifying voter + fetching token
+  alreadyVoted,  // voter already voted — show error, auto-reset
+  noTokens,      // token pool exhausted
+  voting,        // show candidates, audio guide, confirm
   submitting,    // Firestore transaction in progress
-  success,       // vote recorded — show thank-you then reset
+  success,       // vote recorded — show thank-you, auto-reset
 }
 
 // ─── Root kiosk widget ────────────────────────────────────────────────────────
@@ -27,7 +27,7 @@ class KioskScreen extends StatefulWidget {
 
 class _KioskScreenState extends State<KioskScreen>
     with TickerProviderStateMixin {
-  // ── State ──────────────────────────────────────────────────────────────────
+  // ── Core state ─────────────────────────────────────────────────────────────
   _KioskState _state = _KioskState.welcome;
   String _currentVoterId = '';
   String? _tokenDocId;
@@ -35,17 +35,34 @@ class _KioskScreenState extends State<KioskScreen>
   Candidate? _selected;
   List<Candidate> _candidates = [];
 
-  // ── Services ───────────────────────────────────────────────────────────────
+  // ── Audio guide state ──────────────────────────────────────────────────────
+  bool _guideActive = false;
+  int _highlightedIndex = -1; // index in _candidates being read aloud (-1 = none)
+
+  // ── Controllers ────────────────────────────────────────────────────────────
+  late final PageController _pageCtrl;
   StreamSubscription<DocumentSnapshot>? _boothSub;
   final FlutterTts _tts = FlutterTts();
 
-  // ── Pulse animation (welcome screen) ───────────────────────────────────────
+  // ── Welcome pulse animation ────────────────────────────────────────────────
   late final AnimationController _pulseCtrl;
   late final Animation<double> _pulseAnim;
+
+  // ── Arabic cardinal numbers for TTS ───────────────────────────────────────
+  static const List<String> _arabicNums = [
+    '',
+    'واحد', 'اثنين', 'ثلاثة', 'أربعة', 'خمسة',
+    'ستة', 'سبعة', 'ثمانية', 'تسعة', 'عشرة',
+  ];
+  String _arabicOrdinal(int n) =>
+      (n >= 1 && n <= 10) ? _arabicNums[n] : '$n';
+
+  // ── Init / dispose ─────────────────────────────────────────────────────────
 
   @override
   void initState() {
     super.initState();
+    _pageCtrl = PageController(viewportFraction: 0.65);
     _initPulse();
     _initTts();
     _preloadCandidates();
@@ -55,12 +72,11 @@ class _KioskScreenState extends State<KioskScreen>
   @override
   void dispose() {
     _pulseCtrl.dispose();
+    _pageCtrl.dispose();
     _boothSub?.cancel();
     _tts.stop();
     super.dispose();
   }
-
-  // ── Initialisation ─────────────────────────────────────────────────────────
 
   void _initPulse() {
     _pulseCtrl = AnimationController(
@@ -76,6 +92,7 @@ class _KioskScreenState extends State<KioskScreen>
     await _tts.setLanguage('ar-SA');
     await _tts.setSpeechRate(0.45);
     await _tts.setVolume(1.0);
+    await _tts.setPitch(1.0);
   }
 
   Future<void> _preloadCandidates() async {
@@ -85,8 +102,8 @@ class _KioskScreenState extends State<KioskScreen>
       if (!mounted) return;
       setState(() {
         _candidates = snap.docs
-            .map((d) =>
-                Candidate.fromFirestore(d.id, d.data() as Map<String, dynamic>))
+            .map((d) => Candidate.fromFirestore(
+                d.id, d.data()))
             .toList();
       });
     } catch (_) {}
@@ -116,11 +133,13 @@ class _KioskScreenState extends State<KioskScreen>
       setState(() {
         _currentVoterId = voterId;
         _selected = null;
+        _highlightedIndex = -1;
         _state = _KioskState.voterCheck;
       });
       _checkVoterAndToken();
     } else if (status == 'available' && _state != _KioskState.welcome) {
-      // Pi reset booth externally (e.g., admin override)
+      // External reset (admin / Pi override)
+      _guideActive = false;
       _tts.stop();
       if (mounted) setState(() => _state = _KioskState.welcome);
     }
@@ -130,7 +149,6 @@ class _KioskScreenState extends State<KioskScreen>
 
   Future<void> _checkVoterAndToken() async {
     try {
-      // 1. Check has_voted flag
       final voterSnap = await FirebaseFirestore.instance
           .collection('voters')
           .doc(_currentVoterId)
@@ -138,18 +156,18 @@ class _KioskScreenState extends State<KioskScreen>
 
       if (!mounted) return;
 
-      final data = voterSnap.data() as Map<String, dynamic>?;
+      final data = voterSnap.data();
       final hasVoted = data?['has_voted'] as bool? ?? false;
 
       if (hasVoted) {
+        await _tts.speak('لقد قمت بالتصويت مسبقاً');
         setState(() => _state = _KioskState.alreadyVoted);
-        await Future.delayed(const Duration(seconds: 3));
+        await Future.delayed(const Duration(seconds: 4));
         if (!mounted) return;
         await _resetBooth();
         return;
       }
 
-      // 2. Grab first available token
       final tokenQuery = await FirebaseFirestore.instance
           .collection('tokens')
           .where('used', isEqualTo: false)
@@ -168,15 +186,13 @@ class _KioskScreenState extends State<KioskScreen>
 
       _tokenDocId = tokenQuery.docs.first.id;
       _tokenValue =
-          (tokenQuery.docs.first.data() as Map<String, dynamic>)['token']
-                  as String? ??
-              _tokenDocId;
+          tokenQuery.docs.first.data()['token'] as String? ?? _tokenDocId;
 
-      // 3. Reload candidates if they weren't pre-loaded
       if (_candidates.isEmpty) await _preloadCandidates();
-
       if (!mounted) return;
+
       setState(() => _state = _KioskState.voting);
+      _runAudioGuide(); // fire and forget — guide runs alongside UI
     } catch (e) {
       debugPrint('Kiosk voter check error: $e');
       if (mounted) {
@@ -186,99 +202,210 @@ class _KioskScreenState extends State<KioskScreen>
     }
   }
 
-  // ── Reset booth ───────────────────────────────────────────────────────────
+  // ── Full audio guide ──────────────────────────────────────────────────────
+  //
+  // 1. Welcome phrase
+  // 2. For each candidate: highlight card → speak name → 2s pause
+  // 3. Instruction to tap
 
-  Future<void> _resetBooth() async {
-    try {
-      await FirebaseFirestore.instance
-          .collection('booth_status')
-          .doc('booth_001')
-          .update({'status': 'available', 'current_voter': ''});
-      // Stream will fire and switch _state back to welcome automatically
-    } catch (_) {
-      // Fallback: update local state even if Firestore is unreachable
-      if (mounted) setState(() => _state = _KioskState.welcome);
+  Future<void> _runAudioGuide() async {
+    _guideActive = true;
+    _highlightedIndex = -1;
+
+    await _speakAndWait('مرحباً بك في شاشة التصويت');
+    if (!_guideActive || !mounted) { return; }
+
+    for (int i = 0; i < _candidates.length; i++) {
+      if (!_guideActive || !mounted) { return; }
+
+      setState(() => _highlightedIndex = i);
+      if (_pageCtrl.hasClients) {
+        _pageCtrl.animateToPage(
+          i,
+          duration: const Duration(milliseconds: 400),
+          curve: Curves.easeInOut,
+        );
+      }
+
+      final name = _candidates[i].nameAr.isNotEmpty
+          ? _candidates[i].nameAr
+          : _candidates[i].name;
+      await _speakAndWait('المرشح رقم ${_arabicOrdinal(i + 1)}: $name');
+      if (!_guideActive || !mounted) { return; }
+
+      await Future.delayed(const Duration(seconds: 2));
+      if (!_guideActive || !mounted) { return; }
     }
+
+    if (mounted) setState(() => _highlightedIndex = -1);
+    await _speakAndWait('اضغط على صورة المرشح الذي تريد التصويت له');
+    _guideActive = false;
+  }
+
+  /// Speaks [text] then waits an estimated duration for speech to finish.
+  /// Estimation: ~120 ms per non-space character, min 700 ms, max 9 s.
+  Future<void> _speakAndWait(String text) async {
+    await _tts.stop();
+    await _tts.speak(text);
+    final chars = text.replaceAll(' ', '').length;
+    await Future.delayed(
+        Duration(milliseconds: (chars * 120).clamp(700, 9000)));
+  }
+
+  // ── Candidate selection ───────────────────────────────────────────────────
+
+  void _onCandidateSelected(Candidate c) {
+    _guideActive = false; // abort audio guide
+    _tts.stop();
+    if (!mounted) return;
+    setState(() {
+      _selected = c;
+      _highlightedIndex = -1;
+    });
+    final name = c.nameAr.isNotEmpty ? c.nameAr : c.name;
+    Future.delayed(
+      const Duration(milliseconds: 150),
+      () => _tts.speak('لقد اخترت المرشح $name'),
+    );
   }
 
   // ── Confirm dialog ────────────────────────────────────────────────────────
 
   Future<void> _onConfirmPressed() async {
     if (_selected == null) return;
-    final displayName =
+    final name =
         _selected!.nameAr.isNotEmpty ? _selected!.nameAr : _selected!.name;
+
+    // TTS plays while dialog is shown — no await
+    _tts.speak(
+      'هل تريد التصويت للمرشح $name؟ '
+      'اضغط الزر الأخضر للتأكيد أو الأحمر للإلغاء',
+    );
 
     final confirmed = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => Directionality(
         textDirection: TextDirection.rtl,
-        child: AlertDialog(
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-          title: const Row(
-            children: [
-              Icon(Icons.how_to_vote_rounded,
-                  color: Color(0xFF001F3F), size: 24),
-              SizedBox(width: 10),
-              Text('تأكيد التصويت',
-                  style: TextStyle(
-                      fontWeight: FontWeight.bold, color: Color(0xFF001F3F))),
-            ],
-          ),
-          content: RichText(
-            textDirection: TextDirection.rtl,
-            text: TextSpan(
+        child: _buildConfirmDialog(ctx, name),
+      ),
+    );
+
+    if (confirmed != true) {
+      _tts.stop();
+      return;
+    }
+
+    await _submitVote();
+  }
+
+  Widget _buildConfirmDialog(BuildContext ctx, String name) {
+    return Dialog(
+      backgroundColor: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Candidate thumbnail
+            ClipRRect(
+              borderRadius: BorderRadius.circular(50),
+              child: SizedBox(
+                width: 88,
+                height: 88,
+                child: _selected!.image.isNotEmpty
+                    ? Image.network(
+                        _selected!.image,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) =>
+                            _avatarFallback(size: 88),
+                      )
+                    : _avatarFallback(size: 88),
+              ),
+            ),
+            const SizedBox(height: 14),
+
+            // Candidate name
+            Text(
+              name,
+              textAlign: TextAlign.center,
               style: const TextStyle(
-                  fontSize: 15, color: Color(0xFF1E293B), height: 1.6),
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF001F3F),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'هل تريد التصويت لهذا المرشح؟',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                  fontSize: 15,
+                  color: Colors.grey.shade600,
+                  height: 1.4),
+            ),
+            const SizedBox(height: 28),
+
+            // Two large accessible icon-only buttons
+            Row(
               children: [
-                const TextSpan(text: 'هل أنت متأكد من تصويتك للمرشح '),
-                TextSpan(
-                  text: displayName,
-                  style: const TextStyle(
-                      fontWeight: FontWeight.bold, color: Color(0xFF001F3F)),
+                // ── RED cancel ──────────────────────────────────────
+                Expanded(
+                  child: GestureDetector(
+                    onTap: () => Navigator.pop(ctx, false),
+                    child: Container(
+                      height: 110,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFEF4444),
+                        borderRadius: BorderRadius.circular(20),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.red.withOpacity(0.35),
+                            blurRadius: 14,
+                            offset: const Offset(0, 5),
+                          ),
+                        ],
+                      ),
+                      child: const Center(
+                        child: Icon(Icons.close_rounded,
+                            color: Colors.white, size: 66),
+                      ),
+                    ),
+                  ),
                 ),
-                const TextSpan(text: '؟\n\nلا يمكن التراجع عن هذا الاختيار.'),
+                const SizedBox(width: 16),
+                // ── GREEN confirm ───────────────────────────────────
+                Expanded(
+                  child: GestureDetector(
+                    onTap: () => Navigator.pop(ctx, true),
+                    child: Container(
+                      height: 110,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF22C55E),
+                        borderRadius: BorderRadius.circular(20),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.green.withOpacity(0.35),
+                            blurRadius: 14,
+                            offset: const Offset(0, 5),
+                          ),
+                        ],
+                      ),
+                      child: const Center(
+                        child: Icon(Icons.check_rounded,
+                            color: Colors.white, size: 66),
+                      ),
+                    ),
+                  ),
+                ),
               ],
-            ),
-          ),
-          actionsPadding:
-              const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          actions: [
-            OutlinedButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              style: OutlinedButton.styleFrom(
-                side: BorderSide(color: Colors.grey.shade300),
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14)),
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 24, vertical: 12),
-              ),
-              child: const Text('إلغاء',
-                  style: TextStyle(color: Colors.grey, fontSize: 14)),
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF001F3F),
-                foregroundColor: Colors.white,
-                elevation: 0,
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14)),
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 24, vertical: 12),
-              ),
-              child: const Text('تأكيد',
-                  style: TextStyle(
-                      fontWeight: FontWeight.bold, fontSize: 14)),
             ),
           ],
         ),
       ),
     );
-
-    if (confirmed != true) return;
-    await _submitVote();
   }
 
   // ── Atomic vote transaction ───────────────────────────────────────────────
@@ -287,7 +414,6 @@ class _KioskScreenState extends State<KioskScreen>
     if (_selected == null ||
         _tokenDocId == null ||
         _tokenValue == null) return;
-
     setState(() => _state = _KioskState.submitting);
 
     try {
@@ -295,20 +421,17 @@ class _KioskScreenState extends State<KioskScreen>
       final tokenRef = db.collection('tokens').doc(_tokenDocId!);
 
       await db.runTransaction((tx) async {
-        // Re-verify token still unused
         final tokenSnap = await tx.get(tokenRef);
         if (tokenSnap.data()?['used'] == true) {
           throw Exception('token_already_used');
         }
 
-        // Anonymous vote: only candidate_id + token, no personal data
+        // Anonymous vote — no personal data stored
         tx.set(db.collection('votes').doc(), {
           'candidate_id': _selected!.candidateId,
-          'token':        _tokenValue!,
+          'token': _tokenValue!,
         });
-
         tx.update(tokenRef, {'used': true});
-
         tx.update(
           db.collection('voters').doc(_currentVoterId),
           {'has_voted': true},
@@ -316,7 +439,7 @@ class _KioskScreenState extends State<KioskScreen>
       });
 
       if (!mounted) return;
-      await _tts.speak('شكراً لك على تصويتك');
+      await _tts.speak('شكراً لك، تم تسجيل صوتك بنجاح');
       setState(() => _state = _KioskState.success);
 
       await Future.delayed(const Duration(seconds: 4));
@@ -328,23 +451,28 @@ class _KioskScreenState extends State<KioskScreen>
       final msg = e.toString().contains('token_already_used')
           ? 'خطأ في الرمز، يرجى التواصل مع المسؤول'
           : 'حدث خطأ أثناء التصويت، حاول مجدداً';
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(msg), backgroundColor: Colors.redAccent),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(msg), backgroundColor: Colors.redAccent));
     }
   }
 
-  Future<void> _speak(String text) async {
-    await _tts.stop();
-    await _tts.speak(text);
+  Future<void> _resetBooth() async {
+    try {
+      await FirebaseFirestore.instance
+          .collection('booth_status')
+          .doc('booth_001')
+          .update({'status': 'available', 'current_voter': ''});
+    } catch (_) {
+      if (mounted) setState(() => _state = _KioskState.welcome);
+    }
   }
 
-  // ── Build ─────────────────────────────────────────────────────────────────
+  // ── Root build ─────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
     return WillPopScope(
-      onWillPop: () async => false, // kiosk: disable back button
+      onWillPop: () async => false, // kiosk: no back
       child: Directionality(
         textDirection: TextDirection.rtl,
         child: _buildForState(),
@@ -353,25 +481,27 @@ class _KioskScreenState extends State<KioskScreen>
   }
 
   Widget _buildForState() => switch (_state) {
-        _KioskState.welcome      => _buildWelcome(),
-        _KioskState.voterCheck   => _buildDark(
+        _KioskState.welcome => _buildWelcome(),
+        _KioskState.voterCheck => _buildDark(
             icon: Icons.fingerprint_rounded,
             iconColor: Colors.blueAccent,
             message: 'جارٍ التحقق من هوية الناخب...',
           ),
         _KioskState.alreadyVoted => _buildAlreadyVoted(),
-        _KioskState.noTokens     => _buildNoTokens(),
-        _KioskState.voting       => _buildVoting(),
-        _KioskState.submitting   => _buildDark(
+        _KioskState.noTokens => _buildNoTokens(),
+        _KioskState.voting => _buildVoting(),
+        _KioskState.submitting => _buildDark(
             icon: Icons.how_to_vote_rounded,
             iconColor: Colors.white60,
             message: 'جارٍ تسجيل تصويتك...',
             showSpinner: true,
           ),
-        _KioskState.success      => _buildSuccess(),
+        _KioskState.success => _buildSuccess(),
       };
 
-  // ── Welcome ───────────────────────────────────────────────────────────────
+  // =========================================================================
+  // WELCOME SCREEN
+  // =========================================================================
 
   Widget _buildWelcome() {
     return Scaffold(
@@ -381,7 +511,7 @@ class _KioskScreenState extends State<KioskScreen>
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              // Logo row
+              // Logo
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -408,7 +538,7 @@ class _KioskScreenState extends State<KioskScreen>
               ),
               const SizedBox(height: 60),
 
-              // Pulsing circle
+              // Pulsing fingerprint
               ScaleTransition(
                 scale: _pulseAnim,
                 child: Container(
@@ -436,7 +566,6 @@ class _KioskScreenState extends State<KioskScreen>
               ),
               const SizedBox(height: 48),
 
-              // Title
               const Text(
                 'مرحباً بك في مركز الاقتراع',
                 textAlign: TextAlign.center,
@@ -448,8 +577,6 @@ class _KioskScreenState extends State<KioskScreen>
                 ),
               ),
               const SizedBox(height: 16),
-
-              // Subtitle
               const Padding(
                 padding: EdgeInsets.symmetric(horizontal: 40),
                 child: Text(
@@ -463,21 +590,15 @@ class _KioskScreenState extends State<KioskScreen>
                 ),
               ),
               const SizedBox(height: 64),
-
-              // Loading indicator
               const SizedBox(
                 width: 32,
                 height: 32,
                 child: CircularProgressIndicator(
-                  color: Colors.white24,
-                  strokeWidth: 2.5,
-                ),
+                    color: Colors.white24, strokeWidth: 2.5),
               ),
               const SizedBox(height: 16),
-              const Text(
-                'جارٍ مراقبة المنصة...',
-                style: TextStyle(color: Colors.white24, fontSize: 12),
-              ),
+              const Text('جارٍ مراقبة المنصة...',
+                  style: TextStyle(color: Colors.white24, fontSize: 12)),
             ],
           ),
         ),
@@ -485,7 +606,9 @@ class _KioskScreenState extends State<KioskScreen>
     );
   }
 
-  // ── Generic dark status screen ────────────────────────────────────────────
+  // =========================================================================
+  // DARK STATUS SCREENS (checking / submitting)
+  // =========================================================================
 
   Widget _buildDark({
     required IconData icon,
@@ -509,22 +632,22 @@ class _KioskScreenState extends State<KioskScreen>
                 child: Icon(icon, size: 64, color: iconColor),
               ),
               const SizedBox(height: 32),
-              if (showSpinner)
+              if (showSpinner) ...[
                 const SizedBox(
                   width: 36,
                   height: 36,
                   child: CircularProgressIndicator(
                       color: Colors.white38, strokeWidth: 2.5),
                 ),
-              if (showSpinner) const SizedBox(height: 24),
+                const SizedBox(height: 24),
+              ],
               Text(
                 message,
                 textAlign: TextAlign.center,
                 style: const TextStyle(
-                  color: Colors.white70,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w600,
-                ),
+                    color: Colors.white70,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600),
               ),
             ],
           ),
@@ -533,7 +656,9 @@ class _KioskScreenState extends State<KioskScreen>
     );
   }
 
-  // ── Already voted ─────────────────────────────────────────────────────────
+  // =========================================================================
+  // ALREADY VOTED
+  // =========================================================================
 
   Widget _buildAlreadyVoted() {
     return Scaffold(
@@ -589,7 +714,9 @@ class _KioskScreenState extends State<KioskScreen>
     );
   }
 
-  // ── No tokens ─────────────────────────────────────────────────────────────
+  // =========================================================================
+  // NO TOKENS
+  // =========================================================================
 
   Widget _buildNoTokens() {
     return Scaffold(
@@ -634,7 +761,9 @@ class _KioskScreenState extends State<KioskScreen>
     );
   }
 
-  // ── Success ───────────────────────────────────────────────────────────────
+  // =========================================================================
+  // SUCCESS
+  // =========================================================================
 
   Widget _buildSuccess() {
     return Scaffold(
@@ -689,7 +818,9 @@ class _KioskScreenState extends State<KioskScreen>
     );
   }
 
-  // ── Voting UI ─────────────────────────────────────────────────────────────
+  // =========================================================================
+  // VOTING SCREEN — horizontal cards + accessible UI
+  // =========================================================================
 
   Widget _buildVoting() {
     return Scaffold(
@@ -697,7 +828,7 @@ class _KioskScreenState extends State<KioskScreen>
       appBar: AppBar(
         backgroundColor: Colors.white,
         elevation: 0,
-        automaticallyImplyLeading: false, // no back arrow on kiosk
+        automaticallyImplyLeading: false,
         title: const Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
@@ -709,7 +840,7 @@ class _KioskScreenState extends State<KioskScreen>
               style: TextStyle(
                 color: Color(0xFF001F3F),
                 fontWeight: FontWeight.bold,
-                fontSize: 18,
+                fontSize: 20,
               ),
             ),
           ],
@@ -718,118 +849,152 @@ class _KioskScreenState extends State<KioskScreen>
       ),
       body: Column(
         children: [
-          // ── Header card ──────────────────────────────────────────────
-          Container(
-            margin: const EdgeInsets.fromLTRB(20, 20, 20, 0),
-            padding: const EdgeInsets.all(18),
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [Color(0xFF000613), Color(0xFF001F3F)],
-                begin: Alignment.topRight,
-                end: Alignment.bottomLeft,
-              ),
-              borderRadius: BorderRadius.circular(20),
-              boxShadow: [
-                BoxShadow(
-                  color: const Color(0xFF001F3F).withOpacity(0.3),
-                  blurRadius: 16,
-                  offset: const Offset(0, 6),
-                ),
-              ],
-            ),
-            child: const Row(
-              children: [
-                Icon(Icons.touch_app_rounded,
-                    color: Colors.white60, size: 32),
-                SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'اختر مرشحك',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 17,
-                        ),
-                      ),
-                      SizedBox(height: 4),
-                      Text(
-                        'اختر مرشحاً واحداً فقط ثم اضغط "تأكيد التصويت"',
-                        style:
-                            TextStyle(color: Colors.white60, fontSize: 13),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
+          // ── Instruction header ───────────────────────────────────────
+          _buildVotingHeader(),
 
-          // ── Candidates list ─────────────────────────────────────────
+          // ── Horizontal candidate cards ───────────────────────────────
           Expanded(
             child: _candidates.isEmpty
                 ? const Center(
                     child: CircularProgressIndicator(
                         color: Color(0xFF001F3F)))
-                : ListView.separated(
-                    padding:
-                        const EdgeInsets.fromLTRB(20, 16, 20, 20),
-                    itemCount: _candidates.length,
-                    separatorBuilder: (_, __) =>
-                        const SizedBox(height: 12),
-                    itemBuilder: (_, i) {
-                      final c = _candidates[i];
-                      return _KioskCandidateTile(
-                        candidate: c,
-                        isSelected: _selected?.id == c.id,
-                        onSelect: () =>
-                            setState(() => _selected = c),
-                        onSpeak: () {
-                          final ar = c.nameAr;
-                          final en = c.name;
-                          _speak(ar.isNotEmpty ? '$ar، $en' : en);
-                        },
-                      );
-                    },
+                : Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    child: PageView.builder(
+                      controller: _pageCtrl,
+                      itemCount: _candidates.length,
+                      itemBuilder: (_, i) => _buildCandidateCard(
+                        _candidates[i],
+                        i,
+                        _selected?.id == _candidates[i].id,
+                        _highlightedIndex == i,
+                      ),
+                    ),
                   ),
           ),
 
-          // ── Confirm button ──────────────────────────────────────────
-          Container(
-            padding: const EdgeInsets.fromLTRB(20, 14, 20, 32),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.06),
-                  blurRadius: 16,
-                  offset: const Offset(0, -4),
+          // ── Confirm button ───────────────────────────────────────────
+          _buildConfirmBar(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildVotingHeader() {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF000613), Color(0xFF001F3F)],
+          begin: Alignment.topRight,
+          end: Alignment.bottomLeft,
+        ),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF001F3F).withOpacity(0.3),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.touch_app_rounded, color: Colors.white60, size: 28),
+          const SizedBox(width: 12),
+          const Expanded(
+            child: Text(
+              'اضغط على صورة المرشح الذي تريد التصويت له',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                height: 1.4,
+              ),
+            ),
+          ),
+          // Volume replay button
+          IconButton(
+            onPressed: () {
+              _tts.stop();
+              _guideActive = false;
+              Future.delayed(
+                const Duration(milliseconds: 200),
+                _runAudioGuide,
+              );
+            },
+            icon: const Icon(Icons.replay_rounded,
+                color: Colors.white54, size: 24),
+            tooltip: 'إعادة الشرح الصوتي',
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildConfirmBar() {
+    final name = _selected != null
+        ? (_selected!.nameAr.isNotEmpty ? _selected!.nameAr : _selected!.name)
+        : null;
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(24, 12, 24, 28),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.06),
+            blurRadius: 16,
+            offset: const Offset(0, -4),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Selection indicator
+          if (name != null) ...[
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.check_circle_outline_rounded,
+                    color: Colors.green, size: 18),
+                const SizedBox(width: 6),
+                Text(
+                  'اخترت: $name',
+                  style: const TextStyle(
+                    color: Colors.green,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 15,
+                  ),
                 ),
               ],
             ),
-            child: SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed:
-                    _selected != null ? _onConfirmPressed : null,
-                icon: const Icon(Icons.check_circle_rounded, size: 22),
-                label: const Text(
-                  'تأكيد التصويت',
-                  style: TextStyle(
-                      fontWeight: FontWeight.bold, fontSize: 16),
-                ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF001F3F),
-                  foregroundColor: Colors.white,
-                  disabledBackgroundColor: Colors.grey.shade300,
-                  disabledForegroundColor: Colors.grey.shade500,
-                  elevation: 0,
-                  padding: const EdgeInsets.symmetric(vertical: 18),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(24)),
-                ),
+            const SizedBox(height: 10),
+          ],
+          // Confirm button
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: _selected != null ? _onConfirmPressed : null,
+              icon: const Icon(Icons.how_to_vote_rounded, size: 26),
+              label: const Text(
+                'تأكيد التصويت',
+                style: TextStyle(
+                    fontWeight: FontWeight.bold, fontSize: 19),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF001F3F),
+                foregroundColor: Colors.white,
+                disabledBackgroundColor: Colors.grey.shade300,
+                disabledForegroundColor: Colors.grey.shade500,
+                elevation: 0,
+                padding: const EdgeInsets.symmetric(vertical: 20),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(24)),
               ),
             ),
           ),
@@ -837,120 +1002,182 @@ class _KioskScreenState extends State<KioskScreen>
       ),
     );
   }
-}
 
-// ─── Kiosk candidate tile ─────────────────────────────────────────────────────
+  // ── Candidate card ──────────────────────────────────────────────────────
 
-class _KioskCandidateTile extends StatelessWidget {
-  final Candidate candidate;
-  final bool isSelected;
-  final VoidCallback onSelect;
-  final VoidCallback onSpeak;
+  Widget _buildCandidateCard(
+    Candidate c,
+    int index,
+    bool isSelected,
+    bool isHighlighted,
+  ) {
+    final name = c.nameAr.isNotEmpty ? c.nameAr : c.name;
 
-  const _KioskCandidateTile({
-    required this.candidate,
-    required this.isSelected,
-    required this.onSelect,
-    required this.onSpeak,
-  });
+    // Border and background based on state
+    final Color borderColor;
+    final double borderWidth;
+    final Color bgColor;
+    final List<BoxShadow> shadows;
 
-  @override
-  Widget build(BuildContext context) {
-    final name =
-        candidate.nameAr.isNotEmpty ? candidate.nameAr : candidate.name;
+    if (isSelected) {
+      borderColor = const Color(0xFF22C55E); // green
+      borderWidth = 4.0;
+      bgColor = const Color(0xFFF0FFF4); // green tint
+      shadows = [
+        BoxShadow(
+          color: Colors.green.withOpacity(0.3),
+          blurRadius: 20,
+          offset: const Offset(0, 6),
+        ),
+      ];
+    } else if (isHighlighted) {
+      borderColor = const Color(0xFF3B82F6); // blue
+      borderWidth = 4.0;
+      bgColor = const Color(0xFFEFF6FF); // blue tint
+      shadows = [
+        BoxShadow(
+          color: Colors.blue.withOpacity(0.25),
+          blurRadius: 20,
+          offset: const Offset(0, 6),
+        ),
+      ];
+    } else {
+      borderColor = const Color(0xFFCBD5E1); // grey
+      borderWidth = 1.5;
+      bgColor = Colors.white;
+      shadows = [
+        BoxShadow(
+          color: Colors.black.withOpacity(0.06),
+          blurRadius: 12,
+          offset: const Offset(0, 4),
+        ),
+      ];
+    }
 
     return GestureDetector(
-      onTap: onSelect,
+      onTap: () => _onCandidateSelected(c),
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.all(16),
+        duration: const Duration(milliseconds: 250),
+        margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
         decoration: BoxDecoration(
-          color: isSelected
-              ? const Color(0xFF001F3F).withOpacity(0.07)
-              : Colors.white,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: isSelected
-                ? const Color(0xFF001F3F)
-                : Colors.transparent,
-            width: 2,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.04),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
-            ),
-          ],
+          color: bgColor,
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: borderColor, width: borderWidth),
+          boxShadow: shadows,
         ),
-        child: Row(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Radio button
-            Radio<String>(
-              value: candidate.id,
-              groupValue: isSelected ? candidate.id : null,
-              onChanged: (_) => onSelect(),
-              activeColor: const Color(0xFF001F3F),
-              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            ),
-            const SizedBox(width: 10),
+            // ── Image section (top ~62% of card) ──────────────────────
+            Expanded(
+              flex: 62,
+              child: ClipRRect(
+                borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(20)),
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    // Photo
+                    c.image.isNotEmpty
+                        ? Image.network(
+                            c.image,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) =>
+                                _cardImageFallback(),
+                            loadingBuilder: (_, child, prog) =>
+                                prog == null ? child : _cardImageFallback(),
+                          )
+                        : _cardImageFallback(),
 
-            // Candidate photo
-            ClipRRect(
-              borderRadius: BorderRadius.circular(30),
-              child: SizedBox(
-                width: 60,
-                height: 60,
-                child: candidate.image.isNotEmpty
-                    ? Image.network(
-                        candidate.image,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => _fallback(),
-                        loadingBuilder: (_, child, prog) =>
-                            prog == null ? child : _fallback(),
-                      )
-                    : _fallback(),
+                    // Green checkmark badge (selected)
+                    if (isSelected)
+                      Positioned(
+                        top: 12,
+                        left: 12,
+                        child: Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: const BoxDecoration(
+                            color: Color(0xFF22C55E),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(Icons.check_rounded,
+                              color: Colors.white, size: 26),
+                        ),
+                      ),
+
+                    // Blue TTS speaker badge (being read)
+                    if (isHighlighted && !isSelected)
+                      Positioned(
+                        top: 12,
+                        left: 12,
+                        child: Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: const BoxDecoration(
+                            color: Color(0xFF3B82F6),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(Icons.volume_up_rounded,
+                              color: Colors.white, size: 20),
+                        ),
+                      ),
+                  ],
+                ),
               ),
             ),
-            const SizedBox(width: 14),
 
-            // Name
+            // ── Info section (bottom ~38%) ─────────────────────────────
             Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    name,
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: isSelected
-                          ? const Color(0xFF001F3F)
-                          : const Color(0xFF1E293B),
+              flex: 38,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    // Candidate number badge
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: isSelected
+                            ? const Color(0xFF22C55E).withOpacity(0.15)
+                            : isHighlighted
+                                ? const Color(0xFF3B82F6).withOpacity(0.12)
+                                : const Color(0xFFF1F5F9),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        'مرشح رقم ${index + 1}',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                          color: isSelected
+                              ? const Color(0xFF16A34A)
+                              : isHighlighted
+                                  ? const Color(0xFF1D4ED8)
+                                  : Colors.grey.shade600,
+                        ),
+                      ),
                     ),
-                  ),
-                  if (candidate.name.isNotEmpty &&
-                      candidate.name != candidate.nameAr) ...[
-                    const SizedBox(height: 3),
+                    const SizedBox(height: 8),
+
+                    // Candidate name
                     Text(
-                      candidate.name,
-                      style: const TextStyle(
-                          fontSize: 12, color: Colors.grey),
+                      name,
+                      textAlign: TextAlign.center,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.bold,
+                        color: isSelected
+                            ? const Color(0xFF15803D)
+                            : const Color(0xFF1E293B),
+                        height: 1.3,
+                      ),
                     ),
                   ],
-                ],
+                ),
               ),
-            ),
-
-            // TTS button
-            IconButton(
-              onPressed: onSpeak,
-              icon: const Icon(Icons.volume_up_rounded),
-              color: const Color(0xFF001F3F).withOpacity(0.45),
-              iconSize: 24,
-              tooltip: 'استمع للاسم',
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(),
             ),
           ],
         ),
@@ -958,8 +1185,30 @@ class _KioskCandidateTile extends StatelessWidget {
     );
   }
 
-  Widget _fallback() => Container(
-        color: const Color(0xFFE8EDF2),
-        child: const Icon(Icons.person, color: Color(0xFF94A3B8), size: 30),
-      );
+  // ── Shared helpers ─────────────────────────────────────────────────────────
+
+  Widget _cardImageFallback() {
+    return Container(
+      color: const Color(0xFFE8EDF2),
+      child: const Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.person_rounded, color: Color(0xFF94A3B8), size: 80),
+        ],
+      ),
+    );
+  }
+
+  Widget _avatarFallback({double size = 64}) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: const BoxDecoration(
+        color: Color(0xFFE8EDF2),
+        shape: BoxShape.circle,
+      ),
+      child: const Icon(Icons.person_rounded,
+          color: Color(0xFF94A3B8), size: 36),
+    );
+  }
 }
