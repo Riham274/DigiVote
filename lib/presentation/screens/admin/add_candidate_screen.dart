@@ -1,6 +1,9 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:image_picker/image_picker.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/services/image_upload_service.dart';
 
 class AddCandidateScreen extends StatefulWidget {
   const AddCandidateScreen({super.key});
@@ -12,74 +15,103 @@ class AddCandidateScreen extends StatefulWidget {
 class _AddCandidateScreenState extends State<AddCandidateScreen> {
   final _formKey = GlobalKey<FormState>();
 
-  final _nationalIdController  = TextEditingController(); // used as Firestore doc ID
-  final _candidateIdController = TextEditingController(); // e.g. 'cand_001'
+  final _candidateIdController = TextEditingController();
   final _nameArController      = TextEditingController();
   final _nameEnController      = TextEditingController();
   final _dobController         = TextEditingController();
-  final _districtController    = TextEditingController();
   final _qualController        = TextEditingController();
   final _expController         = TextEditingController();
   final _descController        = TextEditingController();
   final _goalsController       = TextEditingController();
-  final _imageController       = TextEditingController();
 
-  String? _affiliation;
   bool _isSaving = false;
+  String _statusMsg = 'حفظ المرشح';
 
-  static const List<String> _affiliations = [
-    'مستقل',
-    'تحالف العدالة',
-    'كتلة البناء',
-    'تيار الإصلاح',
-    'الحزب الوطني',
-    'أخرى',
-  ];
+  // Cross-platform image state
+  XFile? _pickedXFile;
+  Uint8List? _imageBytes;
+  final ImagePicker _picker = ImagePicker();
 
   @override
   void dispose() {
-    _nationalIdController.dispose();
     _candidateIdController.dispose();
     _nameArController.dispose();
     _nameEnController.dispose();
     _dobController.dispose();
-    _districtController.dispose();
     _qualController.dispose();
     _expController.dispose();
     _descController.dispose();
     _goalsController.dispose();
-    _imageController.dispose();
     super.dispose();
+  }
+
+  Future<void> _pickImage() async {
+    final XFile? picked = await _picker.pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 1024,
+      maxHeight: 1024,
+      imageQuality: 80,
+    );
+    if (picked == null) return;
+    final bytes = await picked.readAsBytes();
+    setState(() {
+      _pickedXFile = picked;
+      _imageBytes = bytes;
+    });
   }
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
 
-    setState(() => _isSaving = true);
+    setState(() {
+      _isSaving = true;
+      _statusMsg = 'جارٍ رفع الصورة...';
+    });
+
     try {
+      String imageUrl = '';
+
+      if (_pickedXFile != null && _imageBytes != null) {
+        final url = await ImageUploadService.uploadBytes(_imageBytes!);
+        if (url == null) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('فشل رفع الصورة، تحقق من الاتصال وحاول مجدداً'),
+              backgroundColor: Colors.redAccent,
+            ),
+          );
+          setState(() {
+            _isSaving = false;
+            _statusMsg = 'حفظ المرشح';
+          });
+          return;
+        }
+        imageUrl = url;
+      }
+
+      setState(() => _statusMsg = 'جارٍ الحفظ...');
+
       final goals = _goalsController.text
           .split(RegExp(r'[،,\n]'))
           .map((e) => e.trim())
           .where((e) => e.isNotEmpty)
           .toList();
 
-      final nationalId = _nationalIdController.text.trim();
-      // Use national ID as the Firestore document ID
+      final candidateId = _candidateIdController.text.trim();
       await FirebaseFirestore.instance
           .collection('candidates')
-          .doc(nationalId)
+          .doc(candidateId)
           .set({
-        'candidate_id':   _candidateIdController.text.trim(),
-        'name':           _nameEnController.text.trim(),
-        'name_ar':        _nameArController.text.trim(),
-        'date_of_birth':  _dobController.text.trim(),
-        'district':       _districtController.text.trim(),
-        'qualification':  _qualController.text.trim(),
-        'experience':     _expController.text.trim(),
-        'description':    _descController.text.trim(),
-        'affiliation':    _affiliation ?? '',
-        'goals':          goals,
-        'image':          _imageController.text.trim(),
+        'candidate_id':  candidateId,
+        'name':          _nameEnController.text.trim(),
+        'name_ar':       _nameArController.text.trim(),
+        'date_of_birth': _dobController.text.trim(),
+        'qualification': _qualController.text.trim(),
+        'experience':    _expController.text.trim(),
+        'description':   _descController.text.trim(),
+        'goals':         goals,
+        'image':         imageUrl,
       });
 
       if (!mounted) return;
@@ -99,7 +131,12 @@ class _AddCandidateScreenState extends State<AddCandidateScreen> {
         ),
       );
     } finally {
-      if (mounted) setState(() => _isSaving = false);
+      if (mounted) {
+        setState(() {
+          _isSaving = false;
+          _statusMsg = 'حفظ المرشح';
+        });
+      }
     }
   }
 
@@ -126,8 +163,8 @@ class _AddCandidateScreenState extends State<AddCandidateScreen> {
                         fontWeight: FontWeight.bold,
                         color: Colors.white)),
                 backgroundColor: AppColors.primaryContainer,
-                avatar: CircleAvatar(
-                    backgroundColor: Colors.green, radius: 4),
+                avatar:
+                    CircleAvatar(backgroundColor: Colors.green, radius: 4),
                 padding: EdgeInsets.zero,
               ),
             )
@@ -165,29 +202,21 @@ class _AddCandidateScreenState extends State<AddCandidateScreen> {
                 // ── Section: Basic Info ──────────────────────────────────
                 _sectionCard(children: [
                   _field(
-                    label: 'الرقم الوطني للمرشح *',
-                    hint: '1023456789',
-                    controller: _nationalIdController,
-                    keyboardType: TextInputType.number,
-                    validator: _required,
-                  ),
-                  const SizedBox(height: 20),
-                  _field(
-                    label: 'معرّف المرشح *',
+                    label: 'رقم المرشح *',
                     hint: 'cand_001',
                     controller: _candidateIdController,
                     validator: _required,
                   ),
                   const SizedBox(height: 20),
                   _field(
-                    label: 'الاسم بالعربية *',
+                    label: 'الاسم بالعربي *',
                     hint: 'أحمد محمد العمري',
                     controller: _nameArController,
                     validator: _required,
                   ),
                   const SizedBox(height: 20),
                   _field(
-                    label: 'الاسم بالإنجليزية *',
+                    label: 'الاسم الكامل *',
                     hint: 'Ahmad Mohammad Al-Omari',
                     controller: _nameEnController,
                     validator: _required,
@@ -198,33 +227,15 @@ class _AddCandidateScreenState extends State<AddCandidateScreen> {
                     hint: '1980-05-15',
                     controller: _dobController,
                   ),
-                  const SizedBox(height: 20),
-                  _field(
-                    label: 'الدائرة الانتخابية *',
-                    hint: 'دائرة العاصمة الأولى',
-                    controller: _districtController,
-                    validator: _required,
-                  ),
                 ]),
                 const SizedBox(height: 24),
 
-                // ── Section: Professional Info ───────────────────────────
+                // ── Section: Qualifications ──────────────────────────────
                 _sectionCard(children: [
-                  _dropdownField(
-                    label: 'الانتماء السياسي *',
-                    hint: 'اختر الحزب أو التيار',
-                    items: _affiliations,
-                    value: _affiliation,
-                    onChanged: (v) => setState(() => _affiliation = v),
-                    validator: (v) =>
-                        v == null ? 'هذا الحقل مطلوب' : null,
-                  ),
-                  const SizedBox(height: 20),
                   _field(
-                    label: 'المؤهل العلمي *',
+                    label: 'المؤهل العلمي',
                     hint: 'بكالوريوس علوم سياسية',
                     controller: _qualController,
-                    validator: _required,
                   ),
                   const SizedBox(height: 20),
                   _field(
@@ -238,7 +249,7 @@ class _AddCandidateScreenState extends State<AddCandidateScreen> {
                 // ── Section: Bio & Goals ─────────────────────────────────
                 _sectionCard(children: [
                   _field(
-                    label: 'نبذة تعريفية *',
+                    label: 'الوصف / السيرة الذاتية *',
                     hint: 'اكتب نبذة مختصرة عن المرشح...',
                     controller: _descController,
                     maxLines: 4,
@@ -246,7 +257,7 @@ class _AddCandidateScreenState extends State<AddCandidateScreen> {
                   ),
                   const SizedBox(height: 20),
                   _field(
-                    label: 'الأهداف الانتخابية',
+                    label: 'الأهداف',
                     hint:
                         'اكتب كل هدف في سطر منفصل أو افصل بين الأهداف بفاصلة',
                     controller: _goalsController,
@@ -255,14 +266,17 @@ class _AddCandidateScreenState extends State<AddCandidateScreen> {
                 ]),
                 const SizedBox(height: 24),
 
-                // ── Section: Image URL ───────────────────────────────────
+                // ── Section: Image Picker ────────────────────────────────
                 _sectionCard(children: [
-                  _field(
-                    label: 'رابط صورة المرشح',
-                    hint: 'https://...',
-                    controller: _imageController,
-                    keyboardType: TextInputType.url,
+                  const Text(
+                    'صورة المرشح',
+                    style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.onSurfaceVariant),
                   ),
+                  const SizedBox(height: 12),
+                  _buildImagePicker(),
                 ]),
                 const SizedBox(height: 32),
 
@@ -323,7 +337,7 @@ class _AddCandidateScreenState extends State<AddCandidateScreen> {
                                   color: Colors.white, strokeWidth: 2),
                             )
                           : const Icon(Icons.save_rounded),
-                      label: Text(_isSaving ? 'جارٍ الحفظ...' : 'حفظ المرشح'),
+                      label: Text(_isSaving ? _statusMsg : 'حفظ المرشح'),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.primary,
                         foregroundColor: Colors.white,
@@ -340,6 +354,83 @@ class _AddCandidateScreenState extends State<AddCandidateScreen> {
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  // ── Cross-platform image picker widget ────────────────────────────────────
+
+  Widget _buildImagePicker() {
+    final hasImage = _imageBytes != null;
+    return GestureDetector(
+      onTap: _isSaving ? null : _pickImage,
+      child: Container(
+        height: 200,
+        width: double.infinity,
+        decoration: BoxDecoration(
+          color: const Color(0xFFF4F6F9),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: hasImage
+                ? AppColors.primaryContainer
+                : const Color(0xFFCDD5E0),
+            width: 2,
+          ),
+        ),
+        child: hasImage
+            ? Stack(
+                fit: StackFit.expand,
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(14),
+                    child: Image.memory(_imageBytes!, fit: BoxFit.cover),
+                  ),
+                  Positioned(
+                    bottom: 10,
+                    left: 0,
+                    right: 0,
+                    child: Center(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: AppColors.primary.withOpacity(0.85),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: const Text(
+                          'اضغط لتغيير الصورة',
+                          style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              )
+            : Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.add_photo_alternate_rounded,
+                      size: 52, color: Colors.grey[400]),
+                  const SizedBox(height: 10),
+                  Text(
+                    'اختر صورة المرشح',
+                    style: TextStyle(
+                      color: Colors.grey[500],
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'اضغط لاختيار صورة من المعرض',
+                    style:
+                        TextStyle(color: Colors.grey[400], fontSize: 12),
+                  ),
+                ],
+              ),
       ),
     );
   }
@@ -403,48 +494,6 @@ class _AddCandidateScreenState extends State<AddCandidateScreen> {
                 borderSide:
                     const BorderSide(color: Colors.redAccent, width: 1.5)),
           ),
-        ),
-      ],
-    );
-  }
-
-  Widget _dropdownField({
-    required String label,
-    required String hint,
-    required List<String> items,
-    required String? value,
-    required ValueChanged<String?> onChanged,
-    String? Function(String?)? validator,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label,
-            style: const TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.bold,
-                color: AppColors.onSurfaceVariant)),
-        const SizedBox(height: 8),
-        DropdownButtonFormField<String>(
-          value: value,
-          onChanged: onChanged,
-          validator: validator,
-          decoration: InputDecoration(
-            filled: true,
-            fillColor: const Color(0xFFF4F6F9),
-            border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide.none),
-            errorBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide:
-                    const BorderSide(color: Colors.redAccent, width: 1.5)),
-          ),
-          hint: Text(hint,
-              style: const TextStyle(color: Color(0xFFB0B7C3))),
-          items: items
-              .map((e) => DropdownMenuItem(value: e, child: Text(e)))
-              .toList(),
         ),
       ],
     );

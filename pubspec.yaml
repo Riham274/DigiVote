@@ -19,6 +19,10 @@ dependencies:
   google_fonts: ^6.1.0
   smooth_page_indicator: ^1.1.0 # For PageView dot indicators
   geolocator: ^13.0.0
+  firebase_messaging: ^15.0.0
+  image_picker: ^1.1.2
+  http: ^1.2.1
+  cached_network_image: ^3.3.1
 
 dev_dependencies:
   flutter_test:
@@ -29,3 +33,10 @@ flutter:
   uses-material-design: true
   assets:
     - assets/images/
+
+
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: "assets/icon/logo.png"
+  min_sdk_android: 24
