@@ -223,7 +223,7 @@ class PollingStationsScreen extends StatelessWidget {
                         status: d['status'] as String? ?? '',
                         waitingTime: d['waiting_time'] as String? ?? '',
                         openingHours: d['opening_hours'] as String? ?? '',
-                        image: d['image'] as String? ?? '',
+                        image: d['image_url'] as String? ?? d['image'] as String? ?? '',
                       ),
                     );
                   }).toList(),

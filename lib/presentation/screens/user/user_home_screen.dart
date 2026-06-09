@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:smooth_page_indicator/smooth_page_indicator.dart';
@@ -24,6 +26,7 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
   int _docsCount = 0;
   Timer? _scrollTimer;
   final Set<String> _expandedNews = {};
+  Uint8List? _avatarBytes;
 
   late final Future<DateTime?> _electionFuture;
 
@@ -40,6 +43,8 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
         curve: Curves.easeInOut,
       );
     });
+    // Load avatar after first frame so AuthStateWidget context is available
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadAvatar());
   }
 
   @override
@@ -50,6 +55,24 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
   }
 
   // ── Data fetchers ─────────────────────────────────────────────────────────
+
+  Future<void> _loadAvatar() async {
+    final nationalId =
+        AuthStateWidget.of(context).currentUser?.nationalId ?? '';
+    if (nationalId.isEmpty) return;
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('voters')
+          .doc(nationalId)
+          .get();
+      if (!doc.exists || !mounted) return;
+      final b64 = doc.data()?['image'] as String? ??
+                  doc.data()?['face_image_base64'] as String? ?? '';
+      if (b64.isEmpty) return;
+      final bytes = base64Decode(b64);
+      if (mounted) setState(() => _avatarBytes = bytes);
+    } catch (_) {}
+  }
 
   Future<DateTime?> _fetchElectionDate() async {
     try {
@@ -101,11 +124,18 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
                     builder: (_) => const NotificationsScreen()),
               ),
             ),
-            const Padding(
-              padding: EdgeInsets.only(left: 16, right: 8),
+            Padding(
+              padding: const EdgeInsets.only(left: 16, right: 8),
               child: CircleAvatar(
-                backgroundImage: AssetImage('assets/images/image_6.jpg'),
                 radius: 18,
+                backgroundColor: const Color(0xFFE8EDF5),
+                backgroundImage: _avatarBytes != null
+                    ? MemoryImage(_avatarBytes!)
+                    : null,
+                child: _avatarBytes == null
+                    ? const Icon(Icons.person_rounded,
+                        size: 20, color: Color(0xFF001F3F))
+                    : null,
               ),
             ),
           ],
