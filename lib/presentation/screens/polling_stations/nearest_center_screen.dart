@@ -16,6 +16,7 @@ class _Center {
   final double distance; // km
   final int driveMinutes;
   final int walkMinutes;
+  final String imageUrl;
 
   const _Center({
     required this.name,
@@ -27,6 +28,7 @@ class _Center {
     required this.distance,
     required this.driveMinutes,
     required this.walkMinutes,
+    required this.imageUrl,
   });
 }
 
@@ -115,6 +117,7 @@ class _NearestCenterScreenState extends State<NearestCenterScreen> {
         distance: dist,
         driveMinutes: (dist * 2).round(),   // 30 km/h → 2 min/km
         walkMinutes: (dist * 12).round(),   // 5  km/h → 12 min/km
+        imageUrl: d['image_url'] as String? ?? d['image'] as String? ?? '',
       );
     }).toList()
       ..sort((a, b) => a.distance.compareTo(b.distance));
@@ -319,21 +322,43 @@ class _CenterCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ── Gradient header ────────────────────────────────────────
+          // ── Image header ───────────────────────────────────────────
           ClipRRect(
             borderRadius:
                 const BorderRadius.vertical(top: Radius.circular(22)),
-            child: Container(
-              height: isNearest ? 100 : 72,
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [Color(0xFF000613), Color(0xFF001F3F)],
-                  begin: Alignment.topRight,
-                  end: Alignment.bottomLeft,
-                ),
-              ),
+            child: SizedBox(
+              height: isNearest ? 160 : 110,
               child: Stack(
+                fit: StackFit.expand,
                 children: [
+                  // Center image or placeholder gradient
+                  center.imageUrl.isNotEmpty
+                      ? Image.network(
+                          center.imageUrl,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => _headerPlaceholder(),
+                          loadingBuilder: (_, child, prog) =>
+                              prog == null ? child : _headerPlaceholder(),
+                        )
+                      : _headerPlaceholder(),
+
+                  // Bottom gradient overlay so text is readable
+                  Positioned.fill(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            Colors.transparent,
+                            Colors.black.withOpacity(0.6),
+                          ],
+                          stops: const [0.3, 1.0],
+                        ),
+                      ),
+                    ),
+                  ),
+
                   // Distance badge — top right
                   Positioned(
                     top: 12,
@@ -477,6 +502,20 @@ class _CenterCard extends StatelessWidget {
       ),
     );
   }
+
+  Widget _headerPlaceholder() => Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Color(0xFF000613), Color(0xFF001F3F)],
+            begin: Alignment.topRight,
+            end: Alignment.bottomLeft,
+          ),
+        ),
+        child: const Center(
+          child: Icon(Icons.how_to_vote_rounded,
+              color: Colors.white24, size: 40),
+        ),
+      );
 }
 
 // ─── Shared small widgets ──────────────────────────────────────────────────────
@@ -575,6 +614,7 @@ class _NearestCenterNotifCardState extends State<NearestCenterNotifCard> {
   String _centerName = '';
   double _distanceKm = 0;
   int _driveMinutes = 0;
+  String _imageUrl = '';
 
   @override
   void initState() {
@@ -648,6 +688,7 @@ class _NearestCenterNotifCardState extends State<NearestCenterNotifCard> {
         distance: dist,
         driveMinutes: (dist * 2).round(),
         walkMinutes: (dist * 12).round(),
+        imageUrl: d['image_url'] as String? ?? d['image'] as String? ?? '',
       );
       if (nearest == null || dist < nearest.distance) nearest = c;
     }
@@ -657,6 +698,7 @@ class _NearestCenterNotifCardState extends State<NearestCenterNotifCard> {
         _centerName = nearest!.name;
         _distanceKm = nearest.distance;
         _driveMinutes = nearest.driveMinutes;
+        _imageUrl = nearest.imageUrl;
         _state = _LocState.ready;
       });
     }
@@ -708,15 +750,19 @@ class _NearestCenterNotifCardState extends State<NearestCenterNotifCard> {
               )
             : Row(
                 children: [
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.12),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(Icons.location_on_rounded,
-                        color: Colors.white, size: 22),
-                  ),
+                  // Image thumbnail or location icon
+                  _imageUrl.isNotEmpty
+                      ? ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: Image.network(
+                            _imageUrl,
+                            width: 56,
+                            height: 56,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => _iconCircle(),
+                          ),
+                        )
+                      : _iconCircle(),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(
@@ -761,4 +807,14 @@ class _NearestCenterNotifCardState extends State<NearestCenterNotifCard> {
       ),
     );
   }
+
+  Widget _iconCircle() => Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.12),
+          shape: BoxShape.circle,
+        ),
+        child: const Icon(Icons.location_on_rounded,
+            color: Colors.white, size: 22),
+      );
 }
