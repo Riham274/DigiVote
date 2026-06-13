@@ -5,6 +5,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/auth/auth_state.dart';
 import 'add_candidate_screen.dart';
 import 'add_voting_center_screen.dart';
+import 'city_voting_stats_screen.dart';
 import 'election_results_screen.dart';
 
 // ─── Data model ───────────────────────────────────────────────────────────────
@@ -40,11 +41,37 @@ class AdminDashboardScreen extends StatefulWidget {
 
 class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   late Future<_Stats> _statsFuture;
+  String? _adminImageUrl;
+  bool _adminImageLoaded = false;
 
   @override
   void initState() {
     super.initState();
     _statsFuture = _loadStats();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_adminImageLoaded) {
+      _adminImageLoaded = true;
+      _loadAdminImage();
+    }
+  }
+
+  Future<void> _loadAdminImage() async {
+    final nationalId =
+        AuthStateWidget.of(context).currentUser?.nationalId ?? '';
+    if (nationalId.isEmpty) return;
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('admins')
+          .doc(nationalId)
+          .get();
+      if (!mounted) return;
+      final url = doc.data()?['image'] as String? ?? '';
+      if (url.isNotEmpty) setState(() => _adminImageUrl = url);
+    } catch (_) {}
   }
 
   Future<_Stats> _loadStats() async {
@@ -96,10 +123,17 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
               tooltip: 'تسجيل الخروج',
               onPressed: () => AuthStateWidget.of(context).logout(),
             ),
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16.0),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0),
               child: CircleAvatar(
-                backgroundImage: AssetImage('assets/images/image_6.jpg'),
+                backgroundColor: const Color(0xFFE8EDF5),
+                backgroundImage: _adminImageUrl != null
+                    ? NetworkImage(_adminImageUrl!)
+                    : null,
+                child: _adminImageUrl == null
+                    ? const Icon(Icons.person_rounded,
+                        color: AppColors.primaryContainer, size: 22)
+                    : null,
               ),
             ),
           ],
@@ -147,55 +181,83 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
                   const SizedBox(height: 32),
 
-                  // ── Quick actions ────────────────────────────────────────
+                  // ── Quick actions 2×2 grid ───────────────────────────────
                   Text(
                     'الإجراءات السريعة',
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.bold, color: AppColors.primary),
                   ),
                   const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _ActionCard(
-                          title: 'إضافة مركز',
-                          subtitle: 'توسيع نطاق التغطية',
-                          icon: Icons.add_location_alt_rounded,
-                          color: AppColors.primary,
-                          onTap: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                                builder: (_) =>
-                                    const AddVotingCenterScreen()),
-                          ).then((_) => _refresh()),
+                  IntrinsicHeight(
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Expanded(
+                          child: _ActionCard(
+                            title: 'إضافة مركز',
+                            subtitle: 'توسيع نطاق التغطية',
+                            icon: Icons.add_location_alt_rounded,
+                            color: AppColors.primary,
+                            onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                  builder: (_) =>
+                                      const AddVotingCenterScreen()),
+                            ).then((_) => _refresh()),
+                          ),
                         ),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: _ActionCard(
-                          title: 'إضافة مرشح',
-                          subtitle: 'تسجيل بيانات جديد',
-                          icon: Icons.person_add_rounded,
-                          color: const Color(0xFF1E293B),
-                          onTap: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                                builder: (_) => const AddCandidateScreen()),
-                          ).then((_) => _refresh()),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: _ActionCard(
+                            title: 'إضافة مرشح',
+                            subtitle: 'تسجيل بيانات جديد',
+                            icon: Icons.person_add_rounded,
+                            color: const Color(0xFF1E293B),
+                            onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                  builder: (_) => const AddCandidateScreen()),
+                            ).then((_) => _refresh()),
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                  const SizedBox(height: 16),
-                  _ActionCard(
-                    title: 'نتائج الانتخابات',
-                    subtitle: 'عرض نتائج وترتيب المرشحين',
-                    icon: Icons.bar_chart_rounded,
-                    color: const Color(0xFF0D7377),
-                    onTap: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                          builder: (_) => const ElectionResultsScreen()),
+                  const SizedBox(height: 14),
+                  IntrinsicHeight(
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Expanded(
+                          child: _ActionCard(
+                            title: 'نتائج الانتخابات',
+                            subtitle: 'ترتيب المرشحين',
+                            icon: Icons.bar_chart_rounded,
+                            color: const Color(0xFF0D7377),
+                            onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                  builder: (_) =>
+                                      const ElectionResultsScreen()),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: _ActionCard(
+                            title: 'إحصائيات المدن',
+                            subtitle: 'نسب التصويت',
+                            icon: Icons.location_city_rounded,
+                            color: const Color(0xFF7C3AED),
+                            onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                  builder: (_) =>
+                                      const CityVotingStatsScreen()),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                   const SizedBox(height: 32),
@@ -627,35 +689,31 @@ class _RecentCandidates extends StatelessWidget {
                 height: 1, indent: 64, color: Color(0xFFF1F5F9)),
             itemBuilder: (_, i) {
               final d = docs[i].data() as Map<String, dynamic>;
-              final nameAr = d['name_ar'] as String? ?? '';
               final name = d['name'] as String? ?? '';
-              final district = d['district'] as String? ?? '';
-              final affiliation = d['affiliation'] as String? ?? '';
+              final qualification = d['qualification'] as String? ?? '';
               return ListTile(
                 leading: CircleAvatar(
                   backgroundColor:
                       AppColors.primary.withOpacity(0.1),
                   child: Text(
-                    (nameAr.isNotEmpty ? nameAr : name)
-                        .characters
-                        .first,
+                    name.isNotEmpty ? name.characters.first : '؟',
                     style: const TextStyle(
                         fontWeight: FontWeight.bold,
                         color: AppColors.primary),
                   ),
                 ),
                 title: Text(
-                  nameAr.isNotEmpty ? nameAr : name,
+                  name,
                   style: const TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 14,
                       color: AppColors.primary),
                 ),
-                subtitle: Text(
-                  [if (district.isNotEmpty) district, if (affiliation.isNotEmpty) affiliation].join(' · '),
-                  style:
-                      TextStyle(fontSize: 11, color: Colors.grey[500]),
-                ),
+                subtitle: qualification.isNotEmpty
+                    ? Text(qualification,
+                        style: TextStyle(
+                            fontSize: 11, color: Colors.grey[500]))
+                    : null,
                 trailing: const Icon(Icons.chevron_left,
                     color: Colors.grey, size: 18),
               );

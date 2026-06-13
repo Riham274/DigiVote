@@ -152,9 +152,7 @@ class _VotingScreenState extends State<VotingScreen> {
   Future<void> _onConfirmPressed() async {
     if (_selected == null) return;
 
-    final displayName = _selected!.nameAr.isNotEmpty
-        ? _selected!.nameAr
-        : _selected!.name;
+    final displayName = _selected!.name;
 
     final confirmed = await showDialog<bool>(
       context: context,
@@ -676,11 +674,7 @@ class _VotingScreenState extends State<VotingScreen> {
                     isSelected: _selected?.id == candidates[i].id,
                     onSelect: () =>
                         setState(() => _selected = candidates[i]),
-                    onSpeak: () {
-                      final ar = candidates[i].nameAr;
-                      final en = candidates[i].name;
-                      _speak(ar.isNotEmpty ? '$ar، $en' : en);
-                    },
+                    onSpeak: () => _speak(candidates[i].name),
                   ),
                 );
               },
@@ -745,8 +739,7 @@ class _CandidateTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final displayName =
-        candidate.nameAr.isNotEmpty ? candidate.nameAr : candidate.name;
+    final displayName = candidate.name;
 
     return GestureDetector(
       onTap: onSelect,
@@ -818,14 +811,6 @@ class _CandidateTile extends StatelessWidget {
                           : const Color(0xFF1E293B),
                     ),
                   ),
-                  if (candidate.district.isNotEmpty) ...[
-                    const SizedBox(height: 3),
-                    Text(
-                      candidate.district,
-                      style: const TextStyle(
-                          fontSize: 11, color: Colors.grey),
-                    ),
-                  ],
                 ],
               ),
             ),

@@ -15,34 +15,57 @@ class AddCandidateScreen extends StatefulWidget {
 class _AddCandidateScreenState extends State<AddCandidateScreen> {
   final _formKey = GlobalKey<FormState>();
 
-  final _candidateIdController = TextEditingController();
-  final _nameArController      = TextEditingController();
-  final _nameEnController      = TextEditingController();
-  final _dobController         = TextEditingController();
-  final _qualController        = TextEditingController();
-  final _expController         = TextEditingController();
-  final _descController        = TextEditingController();
-  final _goalsController       = TextEditingController();
+  final _nationalIdCtrl    = TextEditingController(); // used as document ID
+  final _candidateIdCtrl   = TextEditingController();
+  final _nameCtrl          = TextEditingController();
+  final _ageCtrl           = TextEditingController();
+  final _qualCtrl          = TextEditingController();
+  final _expCtrl           = TextEditingController();
+  final _bioCtrl           = TextEditingController();
+  final _achievementsCtrl  = TextEditingController();
+  final _sloganCtrl        = TextEditingController();
 
-  bool _isSaving = false;
+  // Dynamic goals list
+  final List<TextEditingController> _goalCtrls = [TextEditingController()];
+
+  bool _isSaving   = false;
   String _statusMsg = 'حفظ المرشح';
 
-  // Cross-platform image state
-  XFile? _pickedXFile;
+  // Image
+  XFile?     _pickedXFile;
   Uint8List? _imageBytes;
   final ImagePicker _picker = ImagePicker();
 
   @override
+  void initState() {
+    super.initState();
+    // Auto-generate a candidate ID that the admin can override
+    _candidateIdCtrl.text =
+        'cand_${DateTime.now().millisecondsSinceEpoch % 100000}';
+  }
+
+  @override
   void dispose() {
-    _candidateIdController.dispose();
-    _nameArController.dispose();
-    _nameEnController.dispose();
-    _dobController.dispose();
-    _qualController.dispose();
-    _expController.dispose();
-    _descController.dispose();
-    _goalsController.dispose();
+    _nationalIdCtrl.dispose();
+    _candidateIdCtrl.dispose();
+    _nameCtrl.dispose();
+    _ageCtrl.dispose();
+    _qualCtrl.dispose();
+    _expCtrl.dispose();
+    _bioCtrl.dispose();
+    _achievementsCtrl.dispose();
+    _sloganCtrl.dispose();
+    for (final c in _goalCtrls) c.dispose();
     super.dispose();
+  }
+
+  void _addGoal() =>
+      setState(() => _goalCtrls.add(TextEditingController()));
+
+  void _removeGoal(int index) {
+    if (_goalCtrls.length <= 1) return;
+    _goalCtrls[index].dispose();
+    setState(() => _goalCtrls.removeAt(index));
   }
 
   Future<void> _pickImage() async {
@@ -56,15 +79,16 @@ class _AddCandidateScreenState extends State<AddCandidateScreen> {
     final bytes = await picked.readAsBytes();
     setState(() {
       _pickedXFile = picked;
-      _imageBytes = bytes;
+      _imageBytes  = bytes;
     });
   }
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
+    if (_nationalIdCtrl.text.trim().isEmpty) return;
 
     setState(() {
-      _isSaving = true;
+      _isSaving  = true;
       _statusMsg = 'جارٍ رفع الصورة...';
     });
 
@@ -82,7 +106,7 @@ class _AddCandidateScreenState extends State<AddCandidateScreen> {
             ),
           );
           setState(() {
-            _isSaving = false;
+            _isSaving  = false;
             _statusMsg = 'حفظ المرشح';
           });
           return;
@@ -92,24 +116,26 @@ class _AddCandidateScreenState extends State<AddCandidateScreen> {
 
       setState(() => _statusMsg = 'جارٍ الحفظ...');
 
-      final goals = _goalsController.text
-          .split(RegExp(r'[،,\n]'))
-          .map((e) => e.trim())
-          .where((e) => e.isNotEmpty)
+      final goals = _goalCtrls
+          .map((c) => c.text.trim())
+          .where((s) => s.isNotEmpty)
           .toList();
 
-      final candidateId = _candidateIdController.text.trim();
+      final nationalId  = _nationalIdCtrl.text.trim();
+      final candidateId = _candidateIdCtrl.text.trim();
       await FirebaseFirestore.instance
           .collection('candidates')
-          .doc(candidateId)
+          .doc(nationalId)       // document ID = national ID
           .set({
+        'national_id':   nationalId,
         'candidate_id':  candidateId,
-        'name':          _nameEnController.text.trim(),
-        'name_ar':       _nameArController.text.trim(),
-        'date_of_birth': _dobController.text.trim(),
-        'qualification': _qualController.text.trim(),
-        'experience':    _expController.text.trim(),
-        'description':   _descController.text.trim(),
+        'name':          _nameCtrl.text.trim(),
+        'age':           int.tryParse(_ageCtrl.text.trim()) ?? 0,
+        'qualification': _qualCtrl.text.trim(),
+        'experience':    _expCtrl.text.trim(),
+        'bio':           _bioCtrl.text.trim(),
+        'achievements':  _achievementsCtrl.text.trim(),
+        'slogan':        _sloganCtrl.text.trim(),
         'goals':         goals,
         'image':         imageUrl,
       });
@@ -122,7 +148,7 @@ class _AddCandidateScreenState extends State<AddCandidateScreen> {
         ),
       );
       Navigator.pop(context);
-    } catch (e) {
+    } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -133,12 +159,14 @@ class _AddCandidateScreenState extends State<AddCandidateScreen> {
     } finally {
       if (mounted) {
         setState(() {
-          _isSaving = false;
+          _isSaving  = false;
           _statusMsg = 'حفظ المرشح';
         });
       }
     }
   }
+
+  // ── Build ──────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -153,121 +181,256 @@ class _AddCandidateScreenState extends State<AddCandidateScreen> {
                   color: AppColors.primaryContainer)),
           backgroundColor: AppColors.surface,
           elevation: 0,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_forward_rounded,
+                color: AppColors.primaryContainer),
+            onPressed: () => Navigator.pop(context),
+          ),
           actions: const [
             Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16.0),
+              padding: EdgeInsets.symmetric(horizontal: 16),
               child: Chip(
-                label: Text('ADMIN PANEL',
+                label: Text('ADMIN',
                     style: TextStyle(
                         fontSize: 10,
                         fontWeight: FontWeight.bold,
                         color: Colors.white)),
                 backgroundColor: AppColors.primaryContainer,
-                avatar:
-                    CircleAvatar(backgroundColor: Colors.green, radius: 4),
                 padding: EdgeInsets.zero,
               ),
-            )
+            ),
           ],
         ),
         body: Form(
           key: _formKey,
           child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24.0),
+            padding: const EdgeInsets.all(24),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
+                // Page title
+                const Text(
                   'إضافة مرشح جديد',
-                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                        color: AppColors.primary,
-                        fontWeight: FontWeight.bold,
-                      ),
+                  style: TextStyle(
+                    fontSize: 26,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.primary,
+                  ),
                 ),
-                const SizedBox(height: 8),
                 Container(
                     width: 64,
                     height: 4,
-                    color: AppColors.primary,
-                    margin: const EdgeInsets.only(bottom: 24)),
-                Text(
-                  'يرجى ملء كافة البيانات المطلوبة بدقة لضمان نزاهة وشفافية العملية الانتخابية.',
-                  style: Theme.of(context)
-                      .textTheme
-                      .bodyLarge
-                      ?.copyWith(color: AppColors.onSurfaceVariant),
+                    margin: const EdgeInsets.symmetric(vertical: 10),
+                    decoration: BoxDecoration(
+                        color: AppColors.primary,
+                        borderRadius: BorderRadius.circular(2))),
+                const Text(
+                  'يرجى ملء كافة البيانات بدقة لضمان نزاهة العملية الانتخابية.',
+                  style: TextStyle(
+                      color: AppColors.onSurfaceVariant, fontSize: 14),
                 ),
-                const SizedBox(height: 32),
+                const SizedBox(height: 28),
 
-                // ── Section: Basic Info ──────────────────────────────────
-                _sectionCard(children: [
-                  _field(
-                    label: 'رقم المرشح *',
-                    hint: 'cand_001',
-                    controller: _candidateIdController,
-                    validator: _required,
+                // ── Section 1: Identity ──────────────────────────────────
+                _card([
+                  _fieldLabel('رقم الهوية الوطنية * (يُستخدم كمعرّف في قاعدة البيانات)'),
+                  _textField(
+                    controller: _nationalIdCtrl,
+                    hint: '1020304050',
+                    keyboardType: TextInputType.number,
+                    validator: (v) {
+                      if (v == null || v.trim().isEmpty) return 'هذا الحقل مطلوب';
+                      if (int.tryParse(v.trim()) == null) return 'أدخل أرقاماً فقط';
+                      return null;
+                    },
                   ),
-                  const SizedBox(height: 20),
-                  _field(
-                    label: 'الاسم بالعربي *',
+                  const SizedBox(height: 16),
+                  _fieldLabel('رقم المرشح *'),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _textField(
+                          controller: _candidateIdCtrl,
+                          hint: 'cand_001',
+                          validator: _required,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton(
+                        tooltip: 'توليد رقم تلقائي',
+                        icon: const Icon(Icons.refresh_rounded,
+                            color: AppColors.primaryContainer),
+                        onPressed: () => setState(() {
+                          _candidateIdCtrl.text =
+                              'cand_${DateTime.now().millisecondsSinceEpoch % 100000}';
+                        }),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  _fieldLabel('الاسم الكامل *'),
+                  _textField(
+                    controller: _nameCtrl,
                     hint: 'أحمد محمد العمري',
-                    controller: _nameArController,
                     validator: _required,
                   ),
-                  const SizedBox(height: 20),
-                  _field(
-                    label: 'الاسم الكامل *',
-                    hint: 'Ahmad Mohammad Al-Omari',
-                    controller: _nameEnController,
-                    validator: _required,
-                  ),
-                  const SizedBox(height: 20),
-                  _field(
-                    label: 'تاريخ الميلاد',
-                    hint: '1980-05-15',
-                    controller: _dobController,
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _fieldLabel('العمر'),
+                            _textField(
+                              controller: _ageCtrl,
+                              hint: '45',
+                              keyboardType: TextInputType.number,
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _fieldLabel('المؤهل العلمي'),
+                            _textField(
+                              controller: _qualCtrl,
+                              hint: 'بكالوريوس علوم سياسية',
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
                 ]),
-                const SizedBox(height: 24),
+                const SizedBox(height: 20),
 
-                // ── Section: Qualifications ──────────────────────────────
-                _sectionCard(children: [
-                  _field(
-                    label: 'المؤهل العلمي',
-                    hint: 'بكالوريوس علوم سياسية',
-                    controller: _qualController,
-                  ),
-                  const SizedBox(height: 20),
-                  _field(
-                    label: 'سنوات الخبرة',
+                // ── Section 2: Professional ──────────────────────────────
+                _card([
+                  _fieldLabel('الخبرة'),
+                  _textField(
+                    controller: _expCtrl,
                     hint: '15 سنة في العمل البرلماني',
-                    controller: _expController,
                   ),
-                ]),
-                const SizedBox(height: 24),
-
-                // ── Section: Bio & Goals ─────────────────────────────────
-                _sectionCard(children: [
-                  _field(
-                    label: 'الوصف / السيرة الذاتية *',
+                  const SizedBox(height: 16),
+                  _fieldLabel('نبذة شخصية'),
+                  _textField(
+                    controller: _bioCtrl,
                     hint: 'اكتب نبذة مختصرة عن المرشح...',
-                    controller: _descController,
-                    maxLines: 4,
-                    validator: _required,
+                    maxLines: 3,
                   ),
-                  const SizedBox(height: 20),
-                  _field(
-                    label: 'الأهداف',
-                    hint:
-                        'اكتب كل هدف في سطر منفصل أو افصل بين الأهداف بفاصلة',
-                    controller: _goalsController,
-                    maxLines: 4,
+                  const SizedBox(height: 16),
+                  _fieldLabel('الإنجازات السابقة'),
+                  _textField(
+                    controller: _achievementsCtrl,
+                    hint: 'اذكر أبرز إنجازاته...',
+                    maxLines: 3,
+                  ),
+                  const SizedBox(height: 16),
+                  _fieldLabel('الشعار الانتخابي'),
+                  _textField(
+                    controller: _sloganCtrl,
+                    hint: 'شعار المرشح...',
                   ),
                 ]),
-                const SizedBox(height: 24),
+                const SizedBox(height: 20),
 
-                // ── Section: Image Picker ────────────────────────────────
-                _sectionCard(children: [
+                // ── Section 3: Goals ─────────────────────────────────────
+                _card([
+                  Row(
+                    children: [
+                      const Icon(Icons.checklist_rounded,
+                          color: AppColors.primaryContainer, size: 20),
+                      const SizedBox(width: 8),
+                      const Expanded(
+                        child: Text(
+                          'البرنامج الانتخابي',
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.primary,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  ..._goalCtrls.asMap().entries.map((entry) {
+                    final i = entry.key;
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 28,
+                            height: 28,
+                            decoration: const BoxDecoration(
+                              color: AppColors.primaryContainer,
+                              shape: BoxShape.circle,
+                            ),
+                            child: Center(
+                              child: Text(
+                                '${i + 1}',
+                                style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: TextFormField(
+                              controller: entry.value,
+                              decoration: InputDecoration(
+                                hintText: 'هدف ${i + 1}...',
+                                hintStyle:
+                                    const TextStyle(color: Color(0xFFB0B7C3)),
+                                filled: true,
+                                fillColor: const Color(0xFFF4F6F9),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(14),
+                                  borderSide: BorderSide.none,
+                                ),
+                                contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 14, vertical: 12),
+                              ),
+                            ),
+                          ),
+                          if (_goalCtrls.length > 1) ...[
+                            const SizedBox(width: 6),
+                            IconButton(
+                              icon: const Icon(Icons.remove_circle_outline_rounded,
+                                  color: Colors.redAccent, size: 22),
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(),
+                              onPressed: () => _removeGoal(i),
+                            ),
+                          ],
+                        ],
+                      ),
+                    );
+                  }),
+                  const SizedBox(height: 4),
+                  TextButton.icon(
+                    onPressed: _isSaving ? null : _addGoal,
+                    icon: const Icon(Icons.add_circle_outline_rounded,
+                        color: AppColors.primaryContainer),
+                    label: const Text(
+                      'إضافة هدف جديد',
+                      style: TextStyle(
+                          color: AppColors.primaryContainer,
+                          fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ]),
+                const SizedBox(height: 20),
+
+                // ── Section 4: Image ─────────────────────────────────────
+                _card([
                   const Text(
                     'صورة المرشح',
                     style: TextStyle(
@@ -278,19 +441,18 @@ class _AddCandidateScreenState extends State<AddCandidateScreen> {
                   const SizedBox(height: 12),
                   _buildImagePicker(),
                 ]),
-                const SizedBox(height: 32),
+                const SizedBox(height: 28),
 
                 // ── Verification banner ──────────────────────────────────
                 Container(
-                  padding: const EdgeInsets.all(24),
+                  padding: const EdgeInsets.all(20),
                   decoration: BoxDecoration(
                     color: AppColors.primaryContainer,
                     borderRadius: BorderRadius.circular(24),
                   ),
                   child: const Row(
                     children: [
-                      Icon(Icons.verified_user,
-                          color: Colors.white, size: 32),
+                      Icon(Icons.verified_user, color: Colors.white, size: 32),
                       SizedBox(width: 16),
                       Expanded(
                         child: Column(
@@ -300,7 +462,7 @@ class _AddCandidateScreenState extends State<AddCandidateScreen> {
                                 style: TextStyle(
                                     color: Colors.white,
                                     fontWeight: FontWeight.bold,
-                                    fontSize: 16)),
+                                    fontSize: 15)),
                             SizedBox(height: 4),
                             Text(
                                 'بصفتك مسؤولاً، إدراج بيانات المرشح يُعدّ وثيقة رسمية.',
@@ -312,7 +474,7 @@ class _AddCandidateScreenState extends State<AddCandidateScreen> {
                     ],
                   ),
                 ),
-                const SizedBox(height: 24),
+                const SizedBox(height: 20),
 
                 // ── Actions ──────────────────────────────────────────────
                 Row(
@@ -349,7 +511,7 @@ class _AddCandidateScreenState extends State<AddCandidateScreen> {
                     ),
                   ],
                 ),
-                const SizedBox(height: 32),
+                const SizedBox(height: 40),
               ],
             ),
           ),
@@ -358,14 +520,14 @@ class _AddCandidateScreenState extends State<AddCandidateScreen> {
     );
   }
 
-  // ── Cross-platform image picker widget ────────────────────────────────────
+  // ── Image picker ───────────────────────────────────────────────────────────
 
   Widget _buildImagePicker() {
     final hasImage = _imageBytes != null;
     return GestureDetector(
       onTap: _isSaving ? null : _pickImage,
       child: Container(
-        height: 200,
+        height: 180,
         width: double.infinity,
         decoration: BoxDecoration(
           color: const Color(0xFFF4F6F9),
@@ -413,21 +575,19 @@ class _AddCandidateScreenState extends State<AddCandidateScreen> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Icon(Icons.add_photo_alternate_rounded,
-                      size: 52, color: Colors.grey[400]),
+                      size: 48, color: Colors.grey[400]),
                   const SizedBox(height: 10),
                   Text(
                     'اختر صورة المرشح',
                     style: TextStyle(
-                      color: Colors.grey[500],
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                    ),
+                        color: Colors.grey[500],
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600),
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'اضغط لاختيار صورة من المعرض',
-                    style:
-                        TextStyle(color: Colors.grey[400], fontSize: 12),
+                    'اضغط لاختيار من المعرض',
+                    style: TextStyle(color: Colors.grey[400], fontSize: 12),
                   ),
                 ],
               ),
@@ -437,7 +597,7 @@ class _AddCandidateScreenState extends State<AddCandidateScreen> {
 
   // ── Helpers ────────────────────────────────────────────────────────────────
 
-  Widget _sectionCard({required List<Widget> children}) {
+  Widget _card(List<Widget> children) {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -445,57 +605,59 @@ class _AddCandidateScreenState extends State<AddCandidateScreen> {
         borderRadius: BorderRadius.circular(24),
         boxShadow: [
           BoxShadow(
-              color: Colors.black.withOpacity(0.03),
+              color: Colors.black.withOpacity(0.04),
               blurRadius: 12,
-              offset: const Offset(0, 4))
+              offset: const Offset(0, 4)),
         ],
       ),
-      child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start, children: children),
+      child:
+          Column(crossAxisAlignment: CrossAxisAlignment.start, children: children),
     );
   }
 
-  Widget _field({
-    required String label,
-    required String hint,
+  Widget _fieldLabel(String text) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Text(
+        text,
+        style: const TextStyle(
+          fontSize: 13,
+          fontWeight: FontWeight.bold,
+          color: AppColors.onSurfaceVariant,
+        ),
+      ),
+    );
+  }
+
+  Widget _textField({
     required TextEditingController controller,
+    required String hint,
     int maxLines = 1,
     TextInputType keyboardType = TextInputType.text,
     String? Function(String?)? validator,
   }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label,
-            style: const TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.bold,
-                color: AppColors.onSurfaceVariant)),
-        const SizedBox(height: 8),
-        TextFormField(
-          controller: controller,
-          maxLines: maxLines,
-          keyboardType: keyboardType,
-          validator: validator,
-          decoration: InputDecoration(
-            hintText: hint,
-            hintStyle: const TextStyle(color: Color(0xFFB0B7C3)),
-            filled: true,
-            fillColor: const Color(0xFFF4F6F9),
-            border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide.none),
-            errorBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide:
-                    const BorderSide(color: Colors.redAccent, width: 1.5)),
-            focusedErrorBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide:
-                    const BorderSide(color: Colors.redAccent, width: 1.5)),
-          ),
-        ),
-      ],
+    return TextFormField(
+      controller: controller,
+      maxLines: maxLines,
+      keyboardType: keyboardType,
+      validator: validator,
+      decoration: InputDecoration(
+        hintText: hint,
+        hintStyle: const TextStyle(color: Color(0xFFB0B7C3)),
+        filled: true,
+        fillColor: const Color(0xFFF4F6F9),
+        border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: BorderSide.none),
+        errorBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide:
+                const BorderSide(color: Colors.redAccent, width: 1.5)),
+        focusedErrorBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide:
+                const BorderSide(color: Colors.redAccent, width: 1.5)),
+      ),
     );
   }
 

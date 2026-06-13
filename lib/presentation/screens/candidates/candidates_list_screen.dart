@@ -194,13 +194,13 @@ class _CandidateCard extends StatelessWidget {
       ),
       borderRadius: BorderRadius.circular(24),
       child: Container(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: AppColors.surfaceContainerLowest,
+          color: Colors.white,
           borderRadius: BorderRadius.circular(24),
           boxShadow: [
             BoxShadow(
-              color: AppColors.primary.withOpacity(0.03),
+              color: Colors.black.withOpacity(0.05),
               blurRadius: 12,
               offset: const Offset(0, 4),
             ),
@@ -208,17 +208,22 @@ class _CandidateCard extends StatelessWidget {
         ),
         child: Row(
           children: [
-            // Avatar
+            // Circular avatar with navy border
             Container(
               width: 80,
               height: 80,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                border: Border.all(
-                    color: AppColors.surfaceContainerLow, width: 4),
+                border: Border.all(color: AppColors.primaryContainer, width: 3),
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.primary.withOpacity(0.12),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
               ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(40),
+              child: ClipOval(
                 child: candidate.image.isNotEmpty
                     ? Image.network(
                         candidate.image,
@@ -230,38 +235,55 @@ class _CandidateCard extends StatelessWidget {
                     : _avatarFallback(),
               ),
             ),
-            const SizedBox(width: 16),
+            const SizedBox(width: 14),
 
-            // Name + district
+            // Name + qualification + slogan
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
                     candidate.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
-                        fontSize: 17,
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.primary),
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.primary,
+                    ),
                   ),
-                  if (candidate.district.isNotEmpty) ...[
-                    const SizedBox(height: 6),
+                  if (candidate.qualification.isNotEmpty) ...[
+                    const SizedBox(height: 4),
                     Row(
                       children: [
-                        const Icon(Icons.location_on_outlined,
-                            size: 14, color: AppColors.onSurfaceVariant),
+                        const Icon(Icons.school_outlined,
+                            size: 13, color: AppColors.onSurfaceVariant),
                         const SizedBox(width: 4),
                         Expanded(
                           child: Text(
-                            candidate.district,
+                            candidate.qualification,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
-                                fontSize: 13,
+                                fontSize: 12,
                                 color: AppColors.onSurfaceVariant),
                           ),
                         ),
                       ],
+                    ),
+                  ],
+                  if (candidate.slogan.isNotEmpty) ...[
+                    const SizedBox(height: 5),
+                    Text(
+                      '"${candidate.slogan}"',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontStyle: FontStyle.italic,
+                        color: Colors.grey[500],
+                        height: 1.4,
+                      ),
                     ),
                   ],
                 ],
@@ -271,14 +293,14 @@ class _CandidateCard extends StatelessWidget {
 
             // Arrow
             Container(
-              width: 40,
-              height: 40,
+              width: 38,
+              height: 38,
               decoration: const BoxDecoration(
                 color: AppColors.primaryContainer,
                 shape: BoxShape.circle,
               ),
-              child:
-                  const Icon(Icons.arrow_back, color: Colors.white, size: 20),
+              child: const Icon(Icons.arrow_back_ios_new_rounded,
+                  color: Colors.white, size: 16),
             ),
           ],
         ),
@@ -287,7 +309,8 @@ class _CandidateCard extends StatelessWidget {
   }
 
   Widget _avatarFallback() => Container(
-        color: AppColors.surfaceContainerLow,
-        child: const Icon(Icons.person, color: AppColors.onSurfaceVariant),
+        color: const Color(0xFFE8EDF5),
+        child: const Icon(Icons.person_rounded,
+            color: AppColors.primaryContainer, size: 36),
       );
 }
