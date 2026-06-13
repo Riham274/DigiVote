@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_tts/flutter_tts.dart';
@@ -7,13 +8,9 @@ import '../../../core/models/candidate_model.dart';
 // ─── State machine ─────────────────────────────────────────────────────────────
 
 enum _KioskState {
-  welcome,       // waiting for Pi to set booth_status → "occupied"
-  voterCheck,    // verifying voter + fetching token
-  alreadyVoted,  // voter already voted — show error, auto-reset
-  noTokens,      // token pool exhausted
-  voting,        // show candidates, audio guide, confirm
-  submitting,    // Firestore transaction in progress
-  success,       // vote recorded — show thank-you, auto-reset
+  welcome,     // waiting for Pi to set booth_status → "occupied"
+  voting,      // show candidates, audio guide, confirm
+  submitting,  // vote saved — random secure delay before booth reset
 }
 
 // ─── Root kiosk widget ────────────────────────────────────────────────────────
@@ -29,9 +26,7 @@ class _KioskScreenState extends State<KioskScreen>
     with TickerProviderStateMixin {
   // ── Core state ─────────────────────────────────────────────────────────────
   _KioskState _state = _KioskState.welcome;
-  String _currentVoterId = '';
-  String? _tokenDocId;
-  String? _tokenValue;
+  String _currentToken = '';   // anonymous token from booth_status/current_token
   Candidate? _selected;
   List<Candidate> _candidates = [];
 
@@ -125,80 +120,25 @@ class _KioskScreenState extends State<KioskScreen>
     if (data == null) return;
 
     final status = data['status'] as String? ?? 'available';
-    final voterId = data['current_voter'] as String? ?? '';
+    final token  = data['current_token'] as String? ?? '';
 
     if (status == 'occupied' &&
-        voterId.isNotEmpty &&
+        token.isNotEmpty &&
         _state == _KioskState.welcome) {
+      // Python already validated the voter — Flutter only knows the token
+      _currentToken = token;
+      if (_candidates.isEmpty) _preloadCandidates();
       setState(() {
-        _currentVoterId = voterId;
         _selected = null;
         _highlightedIndex = -1;
-        _state = _KioskState.voterCheck;
+        _state = _KioskState.voting;
       });
-      _checkVoterAndToken();
+      _runAudioGuide();
     } else if (status == 'available' && _state != _KioskState.welcome) {
       // External reset (admin / Pi override)
       _guideActive = false;
       _tts.stop();
       if (mounted) setState(() => _state = _KioskState.welcome);
-    }
-  }
-
-  // ── Voter & token check ───────────────────────────────────────────────────
-
-  Future<void> _checkVoterAndToken() async {
-    try {
-      final voterSnap = await FirebaseFirestore.instance
-          .collection('voters')
-          .doc(_currentVoterId)
-          .get();
-
-      if (!mounted) return;
-
-      final data = voterSnap.data();
-      final hasVoted = data?['has_voted'] as bool? ?? false;
-
-      if (hasVoted) {
-        await _tts.speak('لقد قمت بالتصويت مسبقاً');
-        setState(() => _state = _KioskState.alreadyVoted);
-        await Future.delayed(const Duration(seconds: 4));
-        if (!mounted) return;
-        await _resetBooth();
-        return;
-      }
-
-      final tokenQuery = await FirebaseFirestore.instance
-          .collection('tokens')
-          .where('used', isEqualTo: false)
-          .limit(1)
-          .get();
-
-      if (!mounted) return;
-
-      if (tokenQuery.docs.isEmpty) {
-        setState(() => _state = _KioskState.noTokens);
-        await Future.delayed(const Duration(seconds: 5));
-        if (!mounted) return;
-        await _resetBooth();
-        return;
-      }
-
-      _tokenDocId = tokenQuery.docs.first.id;
-      _tokenValue =
-          tokenQuery.docs.first.data()['token'] as String? ?? _tokenDocId;
-
-      if (_candidates.isEmpty) await _preloadCandidates();
-      if (!mounted) return;
-
-      setState(() => _state = _KioskState.voting);
-      _runAudioGuide(); // fire and forget — guide runs alongside UI
-    } catch (e) {
-      debugPrint('Kiosk voter check error: $e');
-      if (mounted) {
-        await Future.delayed(const Duration(seconds: 2));
-        setState(() => _state = _KioskState.welcome);
-      }
     }
   }
 
@@ -227,9 +167,7 @@ class _KioskScreenState extends State<KioskScreen>
         );
       }
 
-      final name = _candidates[i].nameAr.isNotEmpty
-          ? _candidates[i].nameAr
-          : _candidates[i].name;
+      final name = _candidates[i].name;
       await _speakAndWait('المرشح رقم ${_arabicOrdinal(i + 1)}: $name');
       if (!_guideActive || !mounted) { return; }
 
@@ -262,7 +200,7 @@ class _KioskScreenState extends State<KioskScreen>
       _selected = c;
       _highlightedIndex = -1;
     });
-    final name = c.nameAr.isNotEmpty ? c.nameAr : c.name;
+    final name = c.name;
     Future.delayed(
       const Duration(milliseconds: 150),
       () => _tts.speak('لقد اخترت المرشح $name'),
@@ -273,8 +211,7 @@ class _KioskScreenState extends State<KioskScreen>
 
   Future<void> _onConfirmPressed() async {
     if (_selected == null) return;
-    final name =
-        _selected!.nameAr.isNotEmpty ? _selected!.nameAr : _selected!.name;
+    final name = _selected!.name;
 
     // TTS plays while dialog is shown — no await
     _tts.speak(
@@ -408,51 +345,48 @@ class _KioskScreenState extends State<KioskScreen>
     );
   }
 
-  // ── Atomic vote transaction ───────────────────────────────────────────────
+  // ── Vote submission ────────────────────────────────────────────────────────
 
   Future<void> _submitVote() async {
-    if (_selected == null ||
-        _tokenDocId == null ||
-        _tokenValue == null) return;
+    if (_selected == null || _currentToken.isEmpty) return;
     setState(() => _state = _KioskState.submitting);
 
     try {
       final db = FirebaseFirestore.instance;
-      final tokenRef = db.collection('tokens').doc(_tokenDocId!);
 
-      await db.runTransaction((tx) async {
-        final tokenSnap = await tx.get(tokenRef);
-        if (tokenSnap.data()?['used'] == true) {
-          throw Exception('token_already_used');
-        }
-
-        // Anonymous vote — no personal data stored
-        tx.set(db.collection('votes').doc(), {
-          'candidate_id': _selected!.candidateId,
-          'token': _tokenValue!,
-        });
-        tx.update(tokenRef, {'used': true});
-        tx.update(
-          db.collection('voters').doc(_currentVoterId),
-          {'has_voted': true},
-        );
+      // 1. Save anonymous vote — only candidate + token, no personal data
+      await db.collection('votes').add({
+        'candidate_id': _selected!.candidateId,
+        'token':        _currentToken,
       });
 
-      if (!mounted) return;
-      await _tts.speak('شكراً لك، تم تسجيل صوتك بنجاح');
-      setState(() => _state = _KioskState.success);
+      // 2. Mark token as used
+      final tokenQuery = await db
+          .collection('tokens')
+          .where('token', isEqualTo: _currentToken)
+          .get();
+      if (tokenQuery.docs.isNotEmpty) {
+        await tokenQuery.docs.first.reference.update({'used': true});
+      }
 
-      await Future.delayed(const Duration(seconds: 4));
+      // 3. Confirm to voter (fire and forget — delay is long enough)
+      _tts.speak('شكراً لك، تم تسجيل صوتك بنجاح');
+
+      // 4. Random delay 5–30 s to prevent timing-based de-anonymisation
+      await Future.delayed(Duration(seconds: Random().nextInt(26) + 5));
       if (!mounted) return;
+
+      // 5. Release booth
       await _resetBooth();
     } catch (e) {
       if (!mounted) return;
       setState(() => _state = _KioskState.voting);
-      final msg = e.toString().contains('token_already_used')
-          ? 'خطأ في الرمز، يرجى التواصل مع المسؤول'
-          : 'حدث خطأ أثناء التصويت، حاول مجدداً';
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(msg), backgroundColor: Colors.redAccent));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('حدث خطأ أثناء التصويت، حاول مجدداً'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
     }
   }
 
@@ -461,7 +395,7 @@ class _KioskScreenState extends State<KioskScreen>
       await FirebaseFirestore.instance
           .collection('booth_status')
           .doc('booth_001')
-          .update({'status': 'available', 'current_voter': ''});
+          .update({'status': 'available', 'current_token': ''});
     } catch (_) {
       if (mounted) setState(() => _state = _KioskState.welcome);
     }
@@ -481,22 +415,9 @@ class _KioskScreenState extends State<KioskScreen>
   }
 
   Widget _buildForState() => switch (_state) {
-        _KioskState.welcome => _buildWelcome(),
-        _KioskState.voterCheck => _buildDark(
-            icon: Icons.fingerprint_rounded,
-            iconColor: Colors.blueAccent,
-            message: 'جارٍ التحقق من هوية الناخب...',
-          ),
-        _KioskState.alreadyVoted => _buildAlreadyVoted(),
-        _KioskState.noTokens => _buildNoTokens(),
-        _KioskState.voting => _buildVoting(),
-        _KioskState.submitting => _buildDark(
-            icon: Icons.how_to_vote_rounded,
-            iconColor: Colors.white60,
-            message: 'جارٍ تسجيل تصويتك...',
-            showSpinner: true,
-          ),
-        _KioskState.success => _buildSuccess(),
+        _KioskState.welcome    => _buildWelcome(),
+        _KioskState.voting     => _buildVoting(),
+        _KioskState.submitting => _buildSecuring(),
       };
 
   // =========================================================================
@@ -607,165 +528,10 @@ class _KioskScreenState extends State<KioskScreen>
   }
 
   // =========================================================================
-  // DARK STATUS SCREENS (checking / submitting)
+  // SECURE DELAY SCREEN  (shown while random delay elapses after voting)
   // =========================================================================
 
-  Widget _buildDark({
-    required IconData icon,
-    required Color iconColor,
-    required String message,
-    bool showSpinner = false,
-  }) {
-    return Scaffold(
-      backgroundColor: const Color(0xFF000613),
-      body: SafeArea(
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(28),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.06),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(icon, size: 64, color: iconColor),
-              ),
-              const SizedBox(height: 32),
-              if (showSpinner) ...[
-                const SizedBox(
-                  width: 36,
-                  height: 36,
-                  child: CircularProgressIndicator(
-                      color: Colors.white38, strokeWidth: 2.5),
-                ),
-                const SizedBox(height: 24),
-              ],
-              Text(
-                message,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                    color: Colors.white70,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  // =========================================================================
-  // ALREADY VOTED
-  // =========================================================================
-
-  Widget _buildAlreadyVoted() {
-    return Scaffold(
-      backgroundColor: const Color(0xFF000613),
-      body: SafeArea(
-        child: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(40),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(28),
-                  decoration: BoxDecoration(
-                    color: Colors.amber.withOpacity(0.12),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(Icons.warning_amber_rounded,
-                      size: 72, color: Colors.amber),
-                ),
-                const SizedBox(height: 32),
-                const Text(
-                  'لقد قمت بالتصويت مسبقاً',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: Colors.amber,
-                    fontSize: 26,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                const Text(
-                  'سجّلنا مشاركتك في هذه الانتخابات مسبقاً.\nلا يمكن التصويت مرتين.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                      color: Colors.white60, fontSize: 15, height: 1.7),
-                ),
-                const SizedBox(height: 40),
-                const SizedBox(
-                  width: 32,
-                  height: 32,
-                  child: CircularProgressIndicator(
-                      color: Colors.white24, strokeWidth: 2.5),
-                ),
-                const SizedBox(height: 12),
-                const Text('جارٍ إعادة الجهاز للحالة الاستعداد...',
-                    style: TextStyle(color: Colors.white24, fontSize: 12)),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  // =========================================================================
-  // NO TOKENS
-  // =========================================================================
-
-  Widget _buildNoTokens() {
-    return Scaffold(
-      backgroundColor: const Color(0xFF000613),
-      body: SafeArea(
-        child: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(40),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(28),
-                  decoration: BoxDecoration(
-                    color: Colors.orangeAccent.withOpacity(0.12),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(Icons.token_rounded,
-                      size: 72, color: Colors.orangeAccent),
-                ),
-                const SizedBox(height: 32),
-                const Text(
-                  'لا توجد رموز متاحة',
-                  style: TextStyle(
-                    color: Colors.orangeAccent,
-                    fontSize: 24,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                const Text(
-                  'نفدت رموز التصويت.\nيرجى التواصل مع المسؤول.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                      color: Colors.white60, fontSize: 15, height: 1.7),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  // =========================================================================
-  // SUCCESS
-  // =========================================================================
-
-  Widget _buildSuccess() {
+  Widget _buildSecuring() {
     return Scaffold(
       backgroundColor: const Color(0xFF000613),
       body: SafeArea(
@@ -778,38 +544,30 @@ class _KioskScreenState extends State<KioskScreen>
                 Container(
                   padding: const EdgeInsets.all(32),
                   decoration: BoxDecoration(
-                    color: Colors.green.withOpacity(0.12),
+                    color: Colors.green.withOpacity(0.10),
                     shape: BoxShape.circle,
                   ),
-                  child: const Icon(Icons.check_circle_rounded,
-                      size: 88, color: Colors.greenAccent),
+                  child: const Icon(Icons.lock_rounded,
+                      size: 72, color: Colors.greenAccent),
                 ),
                 const SizedBox(height: 36),
-                const Text(
-                  'تم التصويت بنجاح!',
-                  style: TextStyle(
-                    color: Colors.greenAccent,
-                    fontSize: 30,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                const Text(
-                  'شكراً لك على تصويتك\nتمت العملية بنجاح',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                      color: Colors.white70, fontSize: 17, height: 1.7),
-                ),
-                const SizedBox(height: 52),
                 const SizedBox(
                   width: 36,
                   height: 36,
                   child: CircularProgressIndicator(
-                      color: Colors.white24, strokeWidth: 2.5),
+                      color: Colors.white38, strokeWidth: 2.5),
                 ),
-                const SizedBox(height: 12),
-                const Text('جارٍ إعادة الجهاز للحالة الاستعداد...',
-                    style: TextStyle(color: Colors.white24, fontSize: 12)),
+                const SizedBox(height: 24),
+                const Text(
+                  'جارٍ تسجيل صوتك بشكل آمن...',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.white70,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w600,
+                    height: 1.4,
+                  ),
+                ),
               ],
             ),
           ),
@@ -936,9 +694,7 @@ class _KioskScreenState extends State<KioskScreen>
   }
 
   Widget _buildConfirmBar() {
-    final name = _selected != null
-        ? (_selected!.nameAr.isNotEmpty ? _selected!.nameAr : _selected!.name)
-        : null;
+    final name = _selected?.name;
 
     return Container(
       padding: const EdgeInsets.fromLTRB(24, 12, 24, 28),
@@ -1011,7 +767,7 @@ class _KioskScreenState extends State<KioskScreen>
     bool isSelected,
     bool isHighlighted,
   ) {
-    final name = c.nameAr.isNotEmpty ? c.nameAr : c.name;
+    final name = c.name;
 
     // Border and background based on state
     final Color borderColor;

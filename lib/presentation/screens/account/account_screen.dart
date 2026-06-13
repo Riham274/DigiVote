@@ -6,77 +6,23 @@ import '../auth/login_screen.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/auth/auth_state.dart';
 
-class AccountScreen extends StatefulWidget {
+class AccountScreen extends StatelessWidget {
   const AccountScreen({super.key});
 
-  @override
-  State<AccountScreen> createState() => _AccountScreenState();
-}
-
-class _AccountScreenState extends State<AccountScreen> {
-  final _nameCtrl    = TextEditingController();
-  final _addressCtrl = TextEditingController();
-  final _phoneCtrl   = TextEditingController();
-
-  bool _obscurePassword = true;
-  bool _isSaving        = false;
-  bool _hasInit         = false;
-
-  @override
-  void dispose() {
-    _nameCtrl.dispose();
-    _addressCtrl.dispose();
-    _phoneCtrl.dispose();
-    super.dispose();
-  }
-
-  // Pre-populate editable fields only on first data arrival
-  void _initControllers(Map<String, dynamic> data) {
-    if (_hasInit) return;
-    _nameCtrl.text    = data['full_name'] as String? ?? '';
-    _addressCtrl.text = data['address']   as String? ?? '';
-    _phoneCtrl.text   = data['phone']     as String? ?? '';
-    _hasInit = true;
-  }
-
-  Future<void> _save(String nationalId) async {
-    setState(() => _isSaving = true);
+  Uint8List? _tryDecodeBase64(String? b64) {
+    if (b64 == null || b64.isEmpty) return null;
     try {
-      await FirebaseFirestore.instance
-          .collection('voters')
-          .doc(nationalId)
-          .update({
-        'full_name': _nameCtrl.text.trim(),
-        'address':   _addressCtrl.text.trim(),
-        'phone':     _phoneCtrl.text.trim(),
-      });
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('تم حفظ التغييرات بنجاح ✓'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
+      return base64Decode(b64);
     } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('حدث خطأ أثناء الحفظ، حاول مجدداً'),
-            backgroundColor: Colors.redAccent,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isSaving = false);
+      return null;
     }
   }
 
-  // ── Build ─────────────────────────────────────────────────────────────────
+  // ── Build ──────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
-    final auth      = AuthStateWidget.of(context);
+    final auth       = AuthStateWidget.of(context);
     final isLoggedIn = auth.isLoggedIn;
     final user       = auth.currentUser;
     final isAdmin    = isLoggedIn && user?.role == 'admin';
@@ -153,8 +99,8 @@ class _AccountScreenState extends State<AccountScreen> {
             Text(
               'سجّل دخولك للوصول إلى بياناتك الشخصية\nومتابعة كل ما يخص الانتخابات.',
               textAlign: TextAlign.center,
-              style:
-                  TextStyle(color: Colors.grey[600], fontSize: 14, height: 1.6),
+              style: TextStyle(
+                  color: Colors.grey[600], fontSize: 14, height: 1.6),
             ),
             const SizedBox(height: 48),
             SizedBox(
@@ -185,55 +131,61 @@ class _AccountScreenState extends State<AccountScreen> {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // ADMIN
+  // ADMIN — reads image URL from admins/{nationalId}
   // ═══════════════════════════════════════════════════════════════════════════
-
-  // Safely decode a base64 image string; returns null on any error
-  Uint8List? _tryDecodeBase64(String? b64) {
-    if (b64 == null || b64.isEmpty) return null;
-    try {
-      return base64Decode(b64);
-    } catch (_) {
-      return null;
-    }
-  }
 
   Widget _buildAdminView(
       BuildContext context, dynamic user, AuthNotifier auth) {
-    return SingleChildScrollView(
-      child: Column(
-        children: [
-          _buildHeader(user, isAdmin: true, imageBase64: null),
-          Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              children: [
-                _infoCard(
-                  title: 'معلومات المشرف',
-                  icon: Icons.admin_panel_settings_rounded,
+    return StreamBuilder<DocumentSnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('admins')
+          .doc(user.nationalId as String)
+          .snapshots(),
+      builder: (ctx, snap) {
+        final data = snap.hasData && (snap.data?.exists ?? false)
+            ? snap.data!.data() as Map<String, dynamic>
+            : <String, dynamic>{};
+
+        final imageUrl = data['image'] as String? ?? '';
+
+        return SingleChildScrollView(
+          child: Column(
+            children: [
+              _buildHeader(user,
+                  isAdmin: true, imageBase64: null, imageUrl: imageUrl),
+              Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
                   children: [
-                    _infoRow(Icons.badge_outlined, 'رقم الهوية الوطنية',
-                        user.nationalId),
-                    _infoRow(Icons.cake_outlined, 'تاريخ الميلاد',
-                        user.birthDate),
-                    _infoRow(Icons.wc_rounded, 'الجنس', user.gender),
-                    _infoRow(Icons.location_on_outlined, 'العنوان',
-                        user.address),
+                    _infoCard(
+                      title: 'معلومات المشرف',
+                      icon: Icons.admin_panel_settings_rounded,
+                      children: [
+                        _infoRow(Icons.badge_outlined, 'رقم الهوية الوطنية',
+                            user.nationalId as String? ?? ''),
+                        _infoRow(Icons.cake_outlined, 'تاريخ الميلاد',
+                            user.birthDate as String? ?? ''),
+                        _infoRow(Icons.wc_rounded, 'الجنس',
+                            user.gender as String? ?? ''),
+                        _infoRow(Icons.location_on_outlined, 'العنوان',
+                            user.address as String? ?? ''),
+                      ],
+                    ),
+                    const SizedBox(height: 24),
+                    _logoutButton(auth),
+                    const SizedBox(height: 32),
                   ],
                 ),
-                const SizedBox(height: 24),
-                _logoutButton(auth),
-                const SizedBox(height: 32),
-              ],
-            ),
+              ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // USER
+  // USER — fully read-only information card
   // ═══════════════════════════════════════════════════════════════════════════
 
   Widget _buildUserView(
@@ -241,59 +193,105 @@ class _AccountScreenState extends State<AccountScreen> {
     return StreamBuilder<DocumentSnapshot>(
       stream: FirebaseFirestore.instance
           .collection('voters')
-          .doc(user.nationalId)
+          .doc(user.nationalId as String)
           .snapshots(),
       builder: (ctx, snap) {
         final data = snap.hasData && (snap.data?.exists ?? false)
             ? snap.data!.data() as Map<String, dynamic>
             : <String, dynamic>{};
 
-        if (snap.hasData) _initControllers(data);
-
-        final password    = data['password']       as String? ?? '';
-        final imageBase64 = data['image']           as String? ??
-                            data['face_image_base64'] as String? ?? '';
+        final imageBase64 = data['image'] as String? ??
+            data['face_image_base64'] as String? ??
+            '';
         final hasVoted =
             data['has_voted'] as bool? ?? (user.hasVoted as bool? ?? false);
-        final gender = data['gender'] as String? ?? (user.gender as String? ?? '');
+        final gender =
+            data['gender'] as String? ?? (user.gender as String? ?? '');
         final dob = data['date_of_birth'] as String? ??
             (user.birthDate as String? ?? '');
+        final fullName =
+            data['full_name'] as String? ?? (user.name as String? ?? '');
+        final address =
+            data['address'] as String? ?? (user.address as String? ?? '');
+        final phone = data['phone'] as String? ?? '';
 
         return SingleChildScrollView(
           child: Column(
             children: [
-              _buildHeader(user, isAdmin: false, imageBase64: imageBase64),
+              _buildHeader(user,
+                  isAdmin: false, imageBase64: imageBase64),
               Padding(
                 padding: const EdgeInsets.all(20),
                 child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // ── Read-only identity card ──────────────────────────
+                    // ── Read-only info banner ────────────────────────────
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 12),
+                      margin: const EdgeInsets.only(bottom: 16),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF001F3F).withOpacity(0.05),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                            color:
+                                const Color(0xFF001F3F).withOpacity(0.12)),
+                      ),
+                      child: const Row(
+                        children: [
+                          Icon(Icons.info_outline_rounded,
+                              color: Color(0xFF001F3F), size: 18),
+                          SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              'بياناتك الشخصية محمية ولا يمكن تعديلها.',
+                              style: TextStyle(
+                                  fontSize: 13,
+                                  color: Color(0xFF001F3F),
+                                  fontWeight: FontWeight.w500),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    // ── Personal data card ───────────────────────────────
                     _infoCard(
-                      title: 'معلومات الهوية',
-                      icon: Icons.badge_outlined,
+                      title: 'البيانات الشخصية',
+                      icon: Icons.person_outline_rounded,
                       children: [
-                        _infoRow(Icons.badge_outlined, 'رقم الهوية',
-                            user.nationalId),
-                        _infoRow(Icons.cake_outlined, 'تاريخ الميلاد', dob),
+                        _infoRow(Icons.person_outline_rounded, 'الاسم الكامل',
+                            fullName),
+                        _infoRow(Icons.badge_outlined, 'رقم الهوية الوطنية',
+                            user.nationalId as String? ?? ''),
+                        _infoRow(
+                            Icons.cake_outlined, 'تاريخ الميلاد', dob),
                         _infoRow(Icons.wc_rounded, 'الجنس', gender),
-                        _infoRowColored(
-                          icon: hasVoted
-                              ? Icons.check_circle_rounded
-                              : Icons.cancel_rounded,
-                          label: 'حالة التصويت',
-                          value: hasVoted ? '✅  تم التصويت' : '❌  لم يصوّت بعد',
-                          color: hasVoted ? Colors.green : Colors.redAccent,
-                        ),
+                        _infoRow(
+                            Icons.location_on_outlined, 'العنوان', address),
+                        _infoRow(Icons.phone_outlined, 'رقم الهاتف', phone),
                       ],
                     ),
                     const SizedBox(height: 16),
 
-                    // ── Password card ────────────────────────────────────
-                    _passwordCard(password),
-                    const SizedBox(height: 16),
-
-                    // ── Editable fields card ─────────────────────────────
-                    _editableCard(user.nationalId),
+                    // ── Voting status card ───────────────────────────────
+                    _infoCard(
+                      title: 'حالة التصويت',
+                      icon: Icons.how_to_vote_outlined,
+                      children: [
+                        _infoRowColored(
+                          icon: hasVoted
+                              ? Icons.check_circle_rounded
+                              : Icons.cancel_rounded,
+                          label: 'المشاركة في الانتخابات',
+                          value: hasVoted
+                              ? '✅  تم التصويت'
+                              : '❌  لم يصوّت بعد',
+                          color:
+                              hasVoted ? Colors.green : Colors.redAccent,
+                        ),
+                      ],
+                    ),
                     const SizedBox(height: 24),
 
                     _logoutButton(auth),
@@ -312,9 +310,20 @@ class _AccountScreenState extends State<AccountScreen> {
   // SHARED WIDGETS
   // ═══════════════════════════════════════════════════════════════════════════
 
-  Widget _buildHeader(dynamic user,
-      {required bool isAdmin, required String? imageBase64}) {
-    final avatarBytes = _tryDecodeBase64(imageBase64);
+  Widget _buildHeader(
+    dynamic user, {
+    required bool isAdmin,
+    required String? imageBase64,
+    String? imageUrl,
+  }) {
+    // Resolve avatar image provider: URL takes priority over base64
+    ImageProvider? avatarImage;
+    if (imageUrl != null && imageUrl.isNotEmpty) {
+      avatarImage = NetworkImage(imageUrl);
+    } else {
+      final bytes = _tryDecodeBase64(imageBase64);
+      if (bytes != null) avatarImage = MemoryImage(bytes);
+    }
 
     return Container(
       width: double.infinity,
@@ -336,9 +345,11 @@ class _AccountScreenState extends State<AccountScreen> {
             child: CircleAvatar(
               radius: 48,
               backgroundColor: const Color(0xFFE8EDF5),
-              backgroundImage:
-                  avatarBytes != null ? MemoryImage(avatarBytes) : null,
-              child: avatarBytes == null
+              backgroundImage: avatarImage,
+              onBackgroundImageError: avatarImage != null
+                  ? (_, __) {}
+                  : null,
+              child: avatarImage == null
                   ? const Icon(Icons.person_rounded,
                       size: 48, color: Color(0xFF001F3F))
                   : null,
@@ -525,156 +536,6 @@ class _AccountScreenState extends State<AccountScreen> {
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  // ── Password card ──────────────────────────────────────────────────────────
-
-  Widget _passwordCard(String password) {
-    return _cardShell(
-      title: 'بيانات الحساب',
-      icon: Icons.lock_outline_rounded,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(9),
-              decoration: BoxDecoration(
-                color: AppColors.primary.withOpacity(0.06),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: const Icon(Icons.lock_outline_rounded,
-                  color: AppColors.primary, size: 18),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('كلمة المرور',
-                      style: TextStyle(
-                          fontSize: 11,
-                          color: Colors.grey[500],
-                          fontWeight: FontWeight.w500)),
-                  const SizedBox(height: 3),
-                  Text(
-                    _obscurePassword
-                        ? '••••••••'
-                        : (password.isEmpty ? '—' : password),
-                    style: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF1E293B),
-                        letterSpacing: 1.2),
-                  ),
-                ],
-              ),
-            ),
-            IconButton(
-              icon: Icon(
-                _obscurePassword
-                    ? Icons.visibility_off_rounded
-                    : Icons.visibility_rounded,
-                color: Colors.grey[400],
-                size: 22,
-              ),
-              onPressed: () =>
-                  setState(() => _obscurePassword = !_obscurePassword),
-              tooltip: _obscurePassword ? 'إظهار' : 'إخفاء',
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // ── Editable fields card ───────────────────────────────────────────────────
-
-  Widget _editableCard(String nationalId) {
-    return _cardShell(
-      title: 'البيانات القابلة للتعديل',
-      icon: Icons.edit_outlined,
-      child: Column(
-        children: [
-          _editField(
-            controller: _nameCtrl,
-            label: 'الاسم الكامل',
-            icon: Icons.person_outline_rounded,
-          ),
-          const SizedBox(height: 14),
-          _editField(
-            controller: _addressCtrl,
-            label: 'العنوان',
-            icon: Icons.location_on_outlined,
-          ),
-          const SizedBox(height: 14),
-          _editField(
-            controller: _phoneCtrl,
-            label: 'رقم الهاتف',
-            icon: Icons.phone_outlined,
-            keyboardType: TextInputType.phone,
-          ),
-          const SizedBox(height: 20),
-          SizedBox(
-            width: double.infinity,
-            height: 52,
-            child: ElevatedButton.icon(
-              onPressed: _isSaving ? null : () => _save(nationalId),
-              icon: _isSaving
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                          color: Colors.white, strokeWidth: 2),
-                    )
-                  : const Icon(Icons.save_rounded),
-              label: Text(
-                _isSaving ? 'جارٍ الحفظ...' : 'حفظ التغييرات',
-                style: const TextStyle(
-                    fontWeight: FontWeight.bold, fontSize: 15),
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF001F3F),
-                foregroundColor: Colors.white,
-                elevation: 0,
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16)),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _editField({
-    required TextEditingController controller,
-    required String label,
-    required IconData icon,
-    TextInputType keyboardType = TextInputType.text,
-  }) {
-    return TextField(
-      controller: controller,
-      keyboardType: keyboardType,
-      style: const TextStyle(fontSize: 14, color: Color(0xFF1E293B)),
-      decoration: InputDecoration(
-        labelText: label,
-        labelStyle:
-            TextStyle(color: Colors.grey[500], fontSize: 13),
-        prefixIcon: Icon(icon, color: AppColors.primary, size: 20),
-        filled: true,
-        fillColor: const Color(0xFFF4F6F9),
-        border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(14),
-            borderSide: BorderSide.none),
-        focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(14),
-            borderSide: const BorderSide(
-                color: AppColors.primaryContainer, width: 1.5)),
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       ),
     );
   }
