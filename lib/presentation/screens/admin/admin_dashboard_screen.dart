@@ -123,19 +123,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
               tooltip: 'تسجيل الخروج',
               onPressed: () => AuthStateWidget.of(context).logout(),
             ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0),
-              child: CircleAvatar(
-                backgroundColor: const Color(0xFFE8EDF5),
-                backgroundImage: _adminImageUrl != null
-                    ? NetworkImage(_adminImageUrl!)
-                    : null,
-                child: _adminImageUrl == null
-                    ? const Icon(Icons.person_rounded,
-                        color: AppColors.primaryContainer, size: 22)
-                    : null,
-              ),
-            ),
           ],
         ),
         body: FutureBuilder<_Stats>(

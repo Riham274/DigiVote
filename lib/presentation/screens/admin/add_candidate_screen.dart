@@ -175,10 +175,21 @@ class _AddCandidateScreenState extends State<AddCandidateScreen> {
       child: Scaffold(
         backgroundColor: const Color(0xFFF4F6F9),
         appBar: AppBar(
-          title: const Text('UniVote',
-              style: TextStyle(
+          title: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Image.asset('assets/images/logo.png', height: 35),
+              const SizedBox(width: 6),
+              const Text(
+                'DigiVote',
+                style: TextStyle(
                   fontWeight: FontWeight.bold,
-                  color: AppColors.primaryContainer)),
+                  fontSize: 17,
+                  color: AppColors.primaryContainer,
+                ),
+              ),
+            ],
+          ),
           backgroundColor: AppColors.surface,
           elevation: 0,
           leading: IconButton(

@@ -179,19 +179,11 @@ class _LoginScreenState extends State<LoginScreen> {
                     const SizedBox(height: 24),
 
                     // Logo
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: const BoxDecoration(
-                        color: Color(0xFF000613),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(Icons.how_to_vote,
-                          color: Colors.white, size: 32),
-                    ),
-                    const SizedBox(height: 16),
+                    Image.asset('assets/images/logo.png', height: 150),
+                    const SizedBox(height: 12),
 
                     const Text(
-                      'UniVote',
+                      'DigiVote',
                       style: TextStyle(
                         color: Color(0xFF001F3F),
                         fontSize: 32,
@@ -200,8 +192,9 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'المنصة الوطنية للانتخابات',
-                      style: TextStyle(color: Colors.grey[600], fontSize: 16),
+                      'DigiVote — المنصة الوطنية للانتخابات الرقمية',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.grey[600], fontSize: 14),
                     ),
                     const SizedBox(height: 48),
 

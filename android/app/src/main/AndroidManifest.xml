@@ -10,7 +10,7 @@
     </intent>
 </queries>
     <application
-        android:label="UniVote"
+        android:label="DigiVote"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

@@ -433,30 +433,7 @@ class _KioskScreenState extends State<KioskScreen>
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               // Logo
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.08),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(Icons.how_to_vote_rounded,
-                        color: Colors.white54, size: 28),
-                  ),
-                  const SizedBox(width: 12),
-                  const Text(
-                    'UniVote',
-                    style: TextStyle(
-                      color: Colors.white38,
-                      fontSize: 22,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: 1,
-                    ),
-                  ),
-                ],
-              ),
+              Image.asset('assets/images/logo.png', height: 200),
               const SizedBox(height: 60),
 
               // Pulsing fingerprint
@@ -587,26 +564,24 @@ class _KioskScreenState extends State<KioskScreen>
         backgroundColor: Colors.white,
         elevation: 0,
         automaticallyImplyLeading: false,
-        title: const Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.how_to_vote_rounded,
-                color: Color(0xFF001F3F), size: 22),
-            SizedBox(width: 8),
-            Text(
-              'التصويت الإلكتروني',
-              style: TextStyle(
-                color: Color(0xFF001F3F),
-                fontWeight: FontWeight.bold,
-                fontSize: 20,
-              ),
-            ),
-          ],
+        title: const Text(
+          'التصويت الإلكتروني',
+          style: TextStyle(
+            color: Color(0xFF001F3F),
+            fontWeight: FontWeight.bold,
+            fontSize: 20,
+          ),
         ),
         centerTitle: true,
       ),
       body: Column(
         children: [
+          // ── App logo ─────────────────────────────────────────────────
+          Padding(
+            padding: const EdgeInsets.only(top: 12, bottom: 4),
+            child: Image.asset('assets/images/logo.png', height: 60),
+          ),
+
           // ── Instruction header ───────────────────────────────────────
           _buildVotingHeader(),
 

@@ -83,27 +83,21 @@ class _PublicHomeScreenState extends State<PublicHomeScreen> {
           backgroundColor: Colors.white,
           elevation: 0,
           title: Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: const BoxDecoration(
-                  color: Color(0xFF000613),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.how_to_vote,
-                    color: Colors.white, size: 20),
-              ),
-              const SizedBox(width: 10),
+              Image.asset('assets/images/logo.png', height: 35),
+              const SizedBox(width: 6),
               const Text(
-                'UniVote',
+                'DigiVote',
                 style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 18,
                   color: Color(0xFF001F3F),
-                  fontWeight: FontWeight.w900,
-                  fontSize: 20,
                 ),
               ),
             ],
           ),
+          centerTitle: false,
           actions: [
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -128,6 +122,35 @@ class _PublicHomeScreenState extends State<PublicHomeScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // ── Branded hero section ──────────────────────────────────────
+              Center(
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: 24),
+                  child: Column(
+                    children: [
+                      Image.asset('assets/images/logo.png', height: 120),
+                      const SizedBox(height: 14),
+                      const Text(
+                        'DigiVote',
+                        style: TextStyle(
+                          color: Color(0xFF001F3F),
+                          fontSize: 28,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      const Text(
+                        'المنصة الوطنية للانتخابات الرقمية',
+                        style: TextStyle(
+                          color: Color(0xFF6B7280),
+                          fontSize: 16,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
               // ── Main banner ──────────────────────────────────────────────
               _buildTopBanner(context),
               const SizedBox(height: 20),

@@ -19,16 +19,18 @@ class CandidatesListScreen extends StatelessWidget {
       child: Scaffold(
         appBar: AppBar(
           title: Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Container(
-                width: 32,
-                height: 32,
-                decoration: const BoxDecoration(
-                    color: AppColors.primaryContainer, shape: BoxShape.circle),
-                child: const Icon(Icons.how_to_vote, color: Colors.white, size: 16),
+              Image.asset('assets/images/logo.png', height: 35),
+              const SizedBox(width: 6),
+              const Text(
+                'DigiVote',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 17,
+                  color: AppColors.primary,
+                ),
               ),
-              const SizedBox(width: 8),
-              const Text('UniVote', style: TextStyle(fontWeight: FontWeight.bold)),
             ],
           ),
           backgroundColor: AppColors.surface,
