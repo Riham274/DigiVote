@@ -1,6 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:smooth_page_indicator/smooth_page_indicator.dart';
@@ -26,7 +24,6 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
   int _docsCount = 0;
   Timer? _scrollTimer;
   final Set<String> _expandedNews = {};
-  Uint8List? _avatarBytes;
 
   late final Future<DateTime?> _electionFuture;
 
@@ -43,8 +40,6 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
         curve: Curves.easeInOut,
       );
     });
-    // Load avatar after first frame so AuthStateWidget context is available
-    WidgetsBinding.instance.addPostFrameCallback((_) => _loadAvatar());
   }
 
   @override
@@ -55,24 +50,6 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
   }
 
   // ── Data fetchers ─────────────────────────────────────────────────────────
-
-  Future<void> _loadAvatar() async {
-    final nationalId =
-        AuthStateWidget.of(context).currentUser?.nationalId ?? '';
-    if (nationalId.isEmpty) return;
-    try {
-      final doc = await FirebaseFirestore.instance
-          .collection('voters')
-          .doc(nationalId)
-          .get();
-      if (!doc.exists || !mounted) return;
-      final b64 = doc.data()?['image'] as String? ??
-                  doc.data()?['face_image_base64'] as String? ?? '';
-      if (b64.isEmpty) return;
-      final bytes = base64Decode(b64);
-      if (mounted) setState(() => _avatarBytes = bytes);
-    } catch (_) {}
-  }
 
   Future<DateTime?> _fetchElectionDate() async {
     try {
@@ -106,36 +83,38 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
         appBar: AppBar(
           backgroundColor: Colors.white,
           elevation: 0,
-          title: const Text(
-            'الرئيسية',
-            style: TextStyle(
-              color: Color(0xFF001F3F),
-              fontWeight: FontWeight.bold,
-              fontSize: 18,
+          leadingWidth: 150,
+          leading: Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SizedBox(width: 12),
+                Image.asset('assets/images/logo.png', height: 35),
+                const SizedBox(width: 6),
+                const Text(
+                  'DigiVote',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                    color: Color(0xFF001F3F),
+                  ),
+                ),
+              ],
             ),
           ),
           actions: [
-            IconButton(
-              icon: const Icon(Icons.notifications_outlined,
-                  color: Color(0xFF001F3F)),
-              onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                    builder: (_) => const NotificationsScreen()),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.only(left: 16, right: 8),
-              child: CircleAvatar(
-                radius: 18,
-                backgroundColor: const Color(0xFFE8EDF5),
-                backgroundImage: _avatarBytes != null
-                    ? MemoryImage(_avatarBytes!)
-                    : null,
-                child: _avatarBytes == null
-                    ? const Icon(Icons.person_rounded,
-                        size: 20, color: Color(0xFF001F3F))
-                    : null,
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 16),
+              child: Center(
+                child: Text(
+                  'الرئيسية',
+                  style: TextStyle(
+                    color: Color(0xFF001F3F),
+                    fontWeight: FontWeight.bold,
+                    fontSize: 18,
+                  ),
+                ),
               ),
             ),
           ],
@@ -230,32 +209,24 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'يوم الانتخابات الوطنية',
-                      style: Theme.of(context)
-                          .textTheme
-                          .titleLarge
-                          ?.copyWith(color: Colors.white),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'المنصة الوطنية للانتخابات',
-                      style: Theme.of(context)
-                          .textTheme
-                          .bodyMedium
-                          ?.copyWith(color: Colors.white70),
-                    ),
-                  ],
-                ),
+              Text(
+                'يوم الانتخابات الوطنية',
+                style: Theme.of(context)
+                    .textTheme
+                    .titleLarge
+                    ?.copyWith(color: Colors.white),
               ),
-              const Icon(Icons.how_to_vote,
-                  color: Colors.white, size: 48),
+              const SizedBox(height: 8),
+              Text(
+                'DigiVote — المنصة الوطنية للانتخابات الرقمية',
+                style: Theme.of(context)
+                    .textTheme
+                    .bodyMedium
+                    ?.copyWith(color: Colors.white70),
+              ),
             ],
           ),
           const SizedBox(height: 20),

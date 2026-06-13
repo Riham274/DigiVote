@@ -22,17 +22,17 @@ void main() async {
     options: DefaultFirebaseOptions.currentPlatform,
   );
   await FcmService.initialize();
-  runApp(const UniVoteApp());
+  runApp(const DigiVoteApp());
 }
 
-class UniVoteApp extends StatefulWidget {
-  const UniVoteApp({super.key});
+class DigiVoteApp extends StatefulWidget {
+  const DigiVoteApp({super.key});
 
   @override
-  State<UniVoteApp> createState() => _UniVoteAppState();
+  State<DigiVoteApp> createState() => _DigiVoteAppState();
 }
 
-class _UniVoteAppState extends State<UniVoteApp> {
+class _DigiVoteAppState extends State<DigiVoteApp> {
   final AuthNotifier _authNotifier = AuthNotifier();
 
   // null  = still checking
@@ -148,7 +148,7 @@ class _UniVoteAppState extends State<UniVoteApp> {
       child: MaterialApp(
         navigatorKey: appNavKey,
         scaffoldMessengerKey: appMessengerKey,
-        title: 'UniVote',
+        title: 'DigiVote',
         theme: AppTheme.lightTheme,
         debugShowCheckedModeBanner: false,
         locale: const Locale('ar'),
@@ -180,17 +180,16 @@ class _AppSplash extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Scaffold(
-      backgroundColor: Color(0xFF000613),
+    return Scaffold(
+      backgroundColor: const Color(0xFF000613),
       body: Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.how_to_vote_rounded,
-                color: Colors.white30, size: 64),
-            SizedBox(height: 24),
-            Text(
-              'UniVote',
+            Image.asset('assets/images/logo.png', height: 120),
+            const SizedBox(height: 16),
+            const Text(
+              'DigiVote',
               style: TextStyle(
                 color: Colors.white38,
                 fontSize: 28,
@@ -198,8 +197,8 @@ class _AppSplash extends StatelessWidget {
                 letterSpacing: 1.5,
               ),
             ),
-            SizedBox(height: 40),
-            SizedBox(
+            const SizedBox(height: 40),
+            const SizedBox(
               width: 32,
               height: 32,
               child: CircularProgressIndicator(
