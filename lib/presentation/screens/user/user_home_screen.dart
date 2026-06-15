@@ -10,6 +10,7 @@ import '../notifications/notifications_screen.dart';
 import '../polling_stations/polling_stations_screen.dart';
 import '../polling_stations/nearest_center_screen.dart';
 import '../voting/voting_screen.dart';
+import '../../widgets/election_countdown_card.dart';
 
 class UserHomeScreen extends StatefulWidget {
   const UserHomeScreen({super.key});
@@ -25,12 +26,9 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
   Timer? _scrollTimer;
   final Set<String> _expandedNews = {};
 
-  late final Future<DateTime?> _electionFuture;
-
   @override
   void initState() {
     super.initState();
-    _electionFuture = _fetchElectionDate();
     _scrollTimer = Timer.periodic(const Duration(seconds: 4), (_) {
       if (_docsCount < 2 || !mounted) return;
       final next = (_campaignPage + 1) % _docsCount;
@@ -47,24 +45,6 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
     _scrollTimer?.cancel();
     _pageCtrl.dispose();
     super.dispose();
-  }
-
-  // ── Data fetchers ─────────────────────────────────────────────────────────
-
-  Future<DateTime?> _fetchElectionDate() async {
-    try {
-      final doc = await FirebaseFirestore.instance
-          .collection('elections_info')
-          .doc('current_election')
-          .get();
-      if (!doc.exists) return null;
-      final raw = doc.data()?['election_date'];
-      if (raw is Timestamp) return raw.toDate();
-      if (raw is String && raw.isNotEmpty) return DateTime.tryParse(raw);
-    } catch (e) {
-      debugPrint('🔴 election fetch error: $e');
-    }
-    return null;
   }
 
   // ── Build ─────────────────────────────────────────────────────────────────
@@ -143,20 +123,13 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
               ],
               const SizedBox(height: 20),
 
+              // ── Live election countdown ────────────────────────────────
+              const ElectionCountdownCard(),
+              const SizedBox(height: 16),
+
               // ── TOP BANNER ─────────────────────────────────────────────
               _buildTopBanner(context),
               const SizedBox(height: 16),
-
-              // ── Election countdown ─────────────────────────────────────
-              FutureBuilder<DateTime?>(
-                future: _electionFuture,
-                builder: (_, snap) {
-                  if (snap.connectionState == ConnectionState.waiting) {
-                    return _shimmer(120);
-                  }
-                  return _buildCountdownCard(snap.data);
-                },
-              ),
 
               // ── Voting status ──────────────────────────────────────────
               const SizedBox(height: 12),
@@ -255,137 +228,6 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
           ),
         ],
       ),
-    );
-  }
-
-  // ── Election countdown card ────────────────────────────────────────────────
-
-  Widget _buildCountdownCard(DateTime? electionDate) {
-    if (electionDate == null) return const SizedBox.shrink();
-
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final elDay = DateTime(
-        electionDate.year, electionDate.month, electionDate.day);
-    final diff = elDay.difference(today).inDays;
-
-    if (diff < 0) return const SizedBox.shrink();
-
-    final dateStr =
-        '${electionDate.day}/${electionDate.month}/${electionDate.year}';
-    final isToday = diff == 0;
-
-    return Column(
-      children: [
-        const SizedBox(height: 4),
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: isToday
-                  ? [const Color(0xFF0D7377), const Color(0xFF14A085)]
-                  : [const Color(0xFF000613), const Color(0xFF003580)],
-              begin: Alignment.topRight,
-              end: Alignment.bottomLeft,
-            ),
-            borderRadius: BorderRadius.circular(24),
-            boxShadow: [
-              BoxShadow(
-                color: const Color(0xFF000613).withOpacity(0.25),
-                blurRadius: 20,
-                offset: const Offset(0, 8),
-              ),
-            ],
-          ),
-          child:
-              isToday ? _countdownToday() : _countdownDays(diff, dateStr),
-        ),
-      ],
-    );
-  }
-
-  Widget _countdownToday() {
-    return const Column(
-      children: [
-        Text('🎉', style: TextStyle(fontSize: 40)),
-        SizedBox(height: 8),
-        Text(
-          'اليوم يوم الانتخابات!',
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: 22,
-            fontWeight: FontWeight.w900,
-          ),
-          textAlign: TextAlign.center,
-        ),
-        SizedBox(height: 6),
-        Text(
-          'توجه إلى أقرب مركز اقتراع وشارك في صنع المستقبل',
-          style: TextStyle(color: Colors.white70, fontSize: 13, height: 1.5),
-          textAlign: TextAlign.center,
-        ),
-      ],
-    );
-  }
-
-  Widget _countdownDays(int days, String dateStr) {
-    return Row(
-      children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'باقي على الانتخابات',
-                style: TextStyle(color: Colors.white70, fontSize: 13),
-              ),
-              const SizedBox(height: 4),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(
-                    '$days',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 56,
-                      fontWeight: FontWeight.w900,
-                      height: 1,
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  const Padding(
-                    padding: EdgeInsets.only(bottom: 10),
-                    child: Text(
-                      'يوم',
-                      style: TextStyle(
-                        color: Colors.white70,
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'تاريخ الانتخابات: $dateStr',
-                style:
-                    const TextStyle(color: Colors.white54, fontSize: 12),
-              ),
-            ],
-          ),
-        ),
-        Container(
-          padding: const EdgeInsets.all(18),
-          decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.12),
-            shape: BoxShape.circle,
-          ),
-          child: const Icon(Icons.calendar_today_rounded,
-              color: Colors.white, size: 32),
-        ),
-      ],
     );
   }
 

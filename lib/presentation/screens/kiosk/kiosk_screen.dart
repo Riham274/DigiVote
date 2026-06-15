@@ -554,7 +554,7 @@ class _KioskScreenState extends State<KioskScreen>
   }
 
   // =========================================================================
-  // VOTING SCREEN — horizontal cards + accessible UI
+  // VOTING SCREEN — responsive portrait + landscape
   // =========================================================================
 
   Widget _buildVoting() {
@@ -574,41 +574,399 @@ class _KioskScreenState extends State<KioskScreen>
         ),
         centerTitle: true,
       ),
-      body: Column(
-        children: [
-          // ── App logo ─────────────────────────────────────────────────
-          Padding(
-            padding: const EdgeInsets.only(top: 12, bottom: 4),
-            child: Image.asset('assets/images/logo.png', height: 60),
-          ),
+      body: OrientationBuilder(
+        builder: (context, orientation) {
+          if (orientation == Orientation.landscape) {
+            return _buildLandscapeLayout(context);
+          }
+          return _buildPortraitLayout(context);
+        },
+      ),
+    );
+  }
 
-          // ── Instruction header ───────────────────────────────────────
-          _buildVotingHeader(),
+  // ── PORTRAIT ─────────────────────────────────────────────────────────────
 
-          // ── Horizontal candidate cards ───────────────────────────────
-          Expanded(
-            child: _candidates.isEmpty
-                ? const Center(
-                    child: CircularProgressIndicator(
-                        color: Color(0xFF001F3F)))
-                : Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    child: PageView.builder(
-                      controller: _pageCtrl,
+  Widget _buildPortraitLayout(BuildContext context) {
+    return Column(
+      children: [
+        // Logo
+        Padding(
+          padding: const EdgeInsets.only(top: 12, bottom: 4),
+          child: Image.asset('assets/images/logo.png', height: 60),
+        ),
+        // Instruction header with TTS replay
+        _buildVotingHeader(),
+        // Horizontal swipeable candidate cards
+        Expanded(
+          child: _candidates.isEmpty
+              ? const Center(
+                  child: CircularProgressIndicator(color: Color(0xFF001F3F)))
+              : Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  child: PageView.builder(
+                    controller: _pageCtrl,
+                    itemCount: _candidates.length,
+                    itemBuilder: (_, i) => _buildCandidateCard(
+                      _candidates[i],
+                      i,
+                      _selected?.id == _candidates[i].id,
+                      _highlightedIndex == i,
+                    ),
+                  ),
+                ),
+        ),
+        // Confirm bar
+        _buildConfirmBar(),
+      ],
+    );
+  }
+
+  // ── LANDSCAPE ────────────────────────────────────────────────────────────
+
+  Widget _buildLandscapeLayout(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // Compact header: logo + instruction + TTS button in one row
+        _buildLandscapeHeader(),
+        // 3-column grid of candidates
+        Expanded(
+          child: _candidates.isEmpty
+              ? const Center(
+                  child: CircularProgressIndicator(color: Color(0xFF001F3F)))
+              : LayoutBuilder(
+                  builder: (ctx, constraints) {
+                    const cols = 3;
+                    const hPad = 32.0;   // 16 left + 16 right
+                    const xGap = 32.0;   // 2 gaps × 16
+                    const vPad = 16.0;   // 8 top + 8 bottom
+                    final cardW = (constraints.maxWidth - hPad - xGap) / cols;
+                    final cardH = (constraints.maxHeight - vPad).clamp(100.0, 800.0);
+                    final ratio = (cardW / cardH).clamp(0.3, 3.0);
+                    return GridView.builder(
+                      physics: const NeverScrollableScrollPhysics(),
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: cols,
+                        crossAxisSpacing: 16,
+                        mainAxisSpacing: 12,
+                        childAspectRatio: ratio,
+                      ),
                       itemCount: _candidates.length,
-                      itemBuilder: (_, i) => _buildCandidateCard(
+                      itemBuilder: (_, i) => _buildLandscapeCandidateCard(
                         _candidates[i],
                         i,
                         _selected?.id == _candidates[i].id,
                         _highlightedIndex == i,
                       ),
+                    );
+                  },
+                ),
+        ),
+        // Wide, shorter confirm bar
+        _buildLandscapeConfirmBar(),
+      ],
+    );
+  }
+
+  Widget _buildLandscapeHeader() {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF000613), Color(0xFF001F3F)],
+          begin: Alignment.topRight,
+          end: Alignment.bottomLeft,
+        ),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        children: [
+          Image.asset('assets/images/logo.png', height: 36),
+          const SizedBox(width: 12),
+          const Expanded(
+            child: Text(
+              'اضغط على صورة المرشح الذي تريد التصويت له',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                height: 1.3,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          IconButton(
+            onPressed: () {
+              _tts.stop();
+              _guideActive = false;
+              Future.delayed(
+                  const Duration(milliseconds: 200), _runAudioGuide);
+            },
+            icon: const Icon(Icons.replay_rounded,
+                color: Colors.white54, size: 22),
+            tooltip: 'إعادة الشرح الصوتي',
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLandscapeConfirmBar() {
+    final name = _selected?.name;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.06),
+            blurRadius: 12,
+            offset: const Offset(0, -3),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          if (name != null) ...[
+            const Icon(Icons.check_circle_outline_rounded,
+                color: Colors.green, size: 16),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                'اخترت: $name',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Colors.green,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                ),
+              ),
+            ),
+            const SizedBox(width: 16),
+          ],
+          Expanded(
+            child: ElevatedButton.icon(
+              onPressed: _selected != null ? _onConfirmPressed : null,
+              icon: const Icon(Icons.how_to_vote_rounded, size: 22),
+              label: const Text(
+                'تأكيد التصويت',
+                style:
+                    TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF001F3F),
+                foregroundColor: Colors.white,
+                disabledBackgroundColor: Colors.grey.shade300,
+                disabledForegroundColor: Colors.grey.shade500,
+                elevation: 0,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(20)),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLandscapeCandidateCard(
+    Candidate c,
+    int index,
+    bool isSelected,
+    bool isHighlighted,
+  ) {
+    final Color borderColor;
+    final double borderWidth;
+    final Color bgColor;
+    final List<BoxShadow> shadows;
+
+    if (isSelected) {
+      borderColor = const Color(0xFF22C55E);
+      borderWidth = 3.0;
+      bgColor = const Color(0xFFF0FFF4);
+      shadows = [
+        BoxShadow(
+            color: Colors.green.withOpacity(0.25),
+            blurRadius: 16,
+            offset: const Offset(0, 4)),
+      ];
+    } else if (isHighlighted) {
+      borderColor = const Color(0xFF3B82F6);
+      borderWidth = 3.0;
+      bgColor = const Color(0xFFEFF6FF);
+      shadows = [
+        BoxShadow(
+            color: Colors.blue.withOpacity(0.2),
+            blurRadius: 16,
+            offset: const Offset(0, 4)),
+      ];
+    } else {
+      borderColor = const Color(0xFFCBD5E1);
+      borderWidth = 1.5;
+      bgColor = Colors.white;
+      shadows = [
+        BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 3)),
+      ];
+    }
+
+    return GestureDetector(
+      onTap: () => _onCandidateSelected(c),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 250),
+        decoration: BoxDecoration(
+          color: bgColor,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: borderColor, width: borderWidth),
+          boxShadow: shadows,
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              // Circular avatar + state badge
+              Stack(
+                clipBehavior: Clip.none,
+                alignment: Alignment.center,
+                children: [
+                  Container(
+                    width: 80,
+                    height: 80,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(color: borderColor, width: 2.5),
+                    ),
+                    child: ClipOval(
+                      child: c.image.isNotEmpty
+                          ? Image.network(
+                              c.image,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) =>
+                                  _avatarFallback(size: 80),
+                              loadingBuilder: (_, child, prog) =>
+                                  prog == null
+                                      ? child
+                                      : _avatarFallback(size: 80),
+                            )
+                          : _avatarFallback(size: 80),
                     ),
                   ),
-          ),
+                  if (isSelected)
+                    Positioned(
+                      top: -4,
+                      left: -4,
+                      child: Container(
+                        padding: const EdgeInsets.all(3),
+                        decoration: const BoxDecoration(
+                            color: Color(0xFF22C55E),
+                            shape: BoxShape.circle),
+                        child: const Icon(Icons.check_rounded,
+                            color: Colors.white, size: 14),
+                      ),
+                    ),
+                  if (isHighlighted && !isSelected)
+                    Positioned(
+                      top: -4,
+                      left: -4,
+                      child: Container(
+                        padding: const EdgeInsets.all(3),
+                        decoration: const BoxDecoration(
+                            color: Color(0xFF3B82F6),
+                            shape: BoxShape.circle),
+                        child: const Icon(Icons.volume_up_rounded,
+                            color: Colors.white, size: 12),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 8),
 
-          // ── Confirm button ───────────────────────────────────────────
-          _buildConfirmBar(),
-        ],
+              // Candidate number badge
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                decoration: BoxDecoration(
+                  color: isSelected
+                      ? const Color(0xFF22C55E).withOpacity(0.15)
+                      : isHighlighted
+                          ? const Color(0xFF3B82F6).withOpacity(0.12)
+                          : const Color(0xFFF1F5F9),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  'مرشح رقم ${index + 1}',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    color: isSelected
+                        ? const Color(0xFF16A34A)
+                        : isHighlighted
+                            ? const Color(0xFF1D4ED8)
+                            : Colors.grey.shade600,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 6),
+
+              // Name
+              Text(
+                c.name,
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: isSelected
+                      ? const Color(0xFF15803D)
+                      : const Color(0xFF1E293B),
+                  height: 1.2,
+                ),
+              ),
+
+              // Qualification
+              if (c.qualification.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text(
+                  c.qualification,
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey.shade600,
+                  ),
+                ),
+              ],
+
+              // Slogan
+              if (c.slogan.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text(
+                  '"${c.slogan}"',
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontStyle: FontStyle.italic,
+                    color: Colors.grey.shade500,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
       ),
     );
   }
