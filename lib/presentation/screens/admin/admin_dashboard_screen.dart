@@ -7,6 +7,7 @@ import 'add_candidate_screen.dart';
 import 'add_voting_center_screen.dart';
 import 'city_voting_stats_screen.dart';
 import 'election_results_screen.dart';
+import '../../widgets/election_countdown_card.dart';
 
 // ─── Data model ───────────────────────────────────────────────────────────────
 
@@ -146,6 +147,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     'إليك نظرة عامة على حالة الانتخابات',
                     style: TextStyle(color: Colors.grey[600], fontSize: 14),
                   ),
+                  const SizedBox(height: 20),
+
+                  // ── Election countdown ───────────────────────────────────
+                  const ElectionCountdownCard(),
                   const SizedBox(height: 28),
 
                   // ── Stats ────────────────────────────────────────────────
