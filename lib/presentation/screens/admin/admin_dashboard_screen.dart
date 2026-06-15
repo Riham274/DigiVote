@@ -26,8 +26,7 @@ class _Stats {
     required this.totalCandidates,
   });
 
-  double get votingRate =>
-      totalVoters == 0 ? 0 : votedCount / totalVoters;
+  double get votingRate => totalVoters == 0 ? 0 : votedCount / totalVoters;
   int get notVotedCount => totalVoters - votedCount;
 }
 
@@ -82,16 +81,20 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       db.collection('voters').count().get(),
       db.collection('voters').where('has_voted', isEqualTo: true).count().get(),
       db.collection('voting_center').count().get(),
-      db.collection('voting_center').where('status', isEqualTo: 'مفتوح').count().get(),
+      db
+          .collection('voting_center')
+          .where('status', isEqualTo: 'مفتوح')
+          .count()
+          .get(),
       db.collection('candidates').count().get(),
     ]);
 
     return _Stats(
-      totalVoters:      results[0].count ?? 0,
-      votedCount:       results[1].count ?? 0,
-      totalCenters:     results[2].count ?? 0,
-      activeCenters:    results[3].count ?? 0,
-      totalCandidates:  results[4].count ?? 0,
+      totalVoters: results[0].count ?? 0,
+      votedCount: results[1].count ?? 0,
+      totalCenters: results[2].count ?? 0,
+      activeCenters: results[3].count ?? 0,
+      totalCandidates: results[4].count ?? 0,
     );
   }
 
@@ -99,8 +102,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final adminName =
-        AuthStateWidget.of(context).currentUser?.name ?? 'المشرف';
+    final adminName = AuthStateWidget.of(context).currentUser?.name ?? 'المشرف';
 
     return Directionality(
       textDirection: TextDirection.rtl,
@@ -330,8 +332,7 @@ class _StatsGrid extends StatelessWidget {
     );
   }
 
-  String _fmt(int n) =>
-      n >= 1000 ? '${(n / 1000).toStringAsFixed(1)}k' : '$n';
+  String _fmt(int n) => n >= 1000 ? '${(n / 1000).toStringAsFixed(1)}k' : '$n';
 }
 
 class _StatCard extends StatelessWidget {
@@ -424,8 +425,7 @@ class _VotingChart extends StatelessWidget {
         children: [
           const Row(
             children: [
-              Icon(Icons.pie_chart_rounded,
-                  color: AppColors.primary, size: 20),
+              Icon(Icons.pie_chart_rounded, color: AppColors.primary, size: 20),
               SizedBox(width: 10),
               Text('نسبة المشاركة في التصويت',
                   style: TextStyle(
@@ -463,8 +463,7 @@ class _VotingChart extends StatelessWidget {
                                 fontWeight: FontWeight.w900,
                                 color: AppColors.primary)),
                         const Text('صوّتوا',
-                            style: TextStyle(
-                                fontSize: 11, color: Colors.grey)),
+                            style: TextStyle(fontSize: 11, color: Colors.grey)),
                       ],
                     ),
                   ],
@@ -569,8 +568,7 @@ class _LegendItem extends StatelessWidget {
                       fontWeight: FontWeight.bold,
                       color: textColor ?? AppColors.primary)),
               Text('$count ناخب (${pct.toStringAsFixed(1)}%)',
-                  style:
-                      TextStyle(fontSize: 11, color: Colors.grey[500])),
+                  style: TextStyle(fontSize: 11, color: Colors.grey[500])),
             ],
           ),
         ),
@@ -677,21 +675,19 @@ class _RecentCandidates extends StatelessWidget {
             physics: const NeverScrollableScrollPhysics(),
             padding: const EdgeInsets.symmetric(vertical: 8),
             itemCount: docs.length,
-            separatorBuilder: (_, __) => const Divider(
-                height: 1, indent: 64, color: Color(0xFFF1F5F9)),
+            separatorBuilder: (_, __) =>
+                const Divider(height: 1, indent: 64, color: Color(0xFFF1F5F9)),
             itemBuilder: (_, i) {
               final d = docs[i].data() as Map<String, dynamic>;
               final name = d['name'] as String? ?? '';
               final qualification = d['qualification'] as String? ?? '';
               return ListTile(
                 leading: CircleAvatar(
-                  backgroundColor:
-                      AppColors.primary.withOpacity(0.1),
+                  backgroundColor: AppColors.primary.withOpacity(0.1),
                   child: Text(
                     name.isNotEmpty ? name.characters.first : '؟',
                     style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.primary),
+                        fontWeight: FontWeight.bold, color: AppColors.primary),
                   ),
                 ),
                 title: Text(
@@ -703,8 +699,7 @@ class _RecentCandidates extends StatelessWidget {
                 ),
                 subtitle: qualification.isNotEmpty
                     ? Text(qualification,
-                        style: TextStyle(
-                            fontSize: 11, color: Colors.grey[500]))
+                        style: TextStyle(fontSize: 11, color: Colors.grey[500]))
                     : null,
                 trailing: const Icon(Icons.chevron_left,
                     color: Colors.grey, size: 18),
