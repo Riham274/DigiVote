@@ -7,6 +7,7 @@ import 'add_candidate_screen.dart';
 import 'add_voting_center_screen.dart';
 import 'city_voting_stats_screen.dart';
 import 'election_results_screen.dart';
+import 'send_notification_screen.dart';
 import '../../widgets/election_countdown_card.dart';
 
 // ─── Data model ───────────────────────────────────────────────────────────────
@@ -252,6 +253,18 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                           ),
                         ),
                       ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  _ActionCard(
+                    title: 'إرسال إشعار جديد',
+                    subtitle: 'إعلام جميع الناخبين بتحديثات الانتخابات',
+                    icon: Icons.notifications_active_rounded,
+                    color: const Color(0xFF0369A1),
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) => const SendNotificationScreen()),
                     ),
                   ),
                   const SizedBox(height: 32),

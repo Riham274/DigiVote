@@ -8,6 +8,7 @@ import 'package:device_info_plus/device_info_plus.dart';
 import 'core/theme/app_theme.dart';
 import 'core/auth/auth_state.dart';
 import 'core/services/fcm_service.dart';
+import 'core/services/notification_service.dart';
 import 'presentation/screens/main_navigation_screen.dart';
 import 'presentation/screens/kiosk/kiosk_screen.dart';
 import 'firebase_options.dart';
@@ -21,6 +22,7 @@ void main() async {
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
+  await NotificationService.initialize();
   await FcmService.initialize();
   runApp(const DigiVoteApp());
 }

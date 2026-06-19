@@ -24,7 +24,6 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
   int _campaignPage = 0;
   int _docsCount = 0;
   Timer? _scrollTimer;
-  final Set<String> _expandedNews = {};
 
   @override
   void initState() {
@@ -140,20 +139,19 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
               _buildQuickActions(context),
               const SizedBox(height: 24),
 
+              // ── Notifications preview ──────────────────────────────────
+              _buildNotificationsPreview(context),
+              const SizedBox(height: 24),
+
               // ── Campaigns carousel ─────────────────────────────────────
               _sectionTitle('الحملات الإعلانية', Icons.campaign_rounded),
               const SizedBox(height: 12),
               _buildCampaigns(),
               const SizedBox(height: 24),
 
-              // ── Latest news ────────────────────────────────────────────
-              _sectionTitle('آخر الأخبار', Icons.article_rounded),
-              const SizedBox(height: 12),
-              _buildNews(),
+              // ── Tips & Information ─────────────────────────────────────
+              _buildTipsSection(),
               const SizedBox(height: 20),
-
-              // ── Educational banner ─────────────────────────────────────
-              _buildEducationalBanner(),
             ],
           ),
         ),
@@ -387,6 +385,178 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
     );
   }
 
+  // ── Notifications preview (latest 3) ─────────────────────────────────────
+
+  Widget _buildNotificationsPreview(BuildContext context) {
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('notifications')
+          .orderBy('timestamp', descending: true)
+          .limit(3)
+          .snapshots(),
+      builder: (_, snap) {
+        // Header row always visible
+        final header = Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            _sectionTitle('الإشعارات', Icons.notifications_rounded),
+            GestureDetector(
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                    builder: (_) => const NotificationsScreen()),
+              ),
+              child: const Row(
+                children: [
+                  Text(
+                    'عرض الكل',
+                    style: TextStyle(
+                      color: Color(0xFF001F3F),
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  SizedBox(width: 2),
+                  Icon(Icons.arrow_back_ios_rounded,
+                      size: 12, color: Color(0xFF001F3F)),
+                ],
+              ),
+            ),
+          ],
+        );
+
+        if (snap.connectionState == ConnectionState.waiting) {
+          return Column(
+            children: [
+              header,
+              const SizedBox(height: 12),
+              _shimmer(90),
+            ],
+          );
+        }
+
+        final docs = snap.data?.docs ?? [];
+
+        if (docs.isEmpty) {
+          return Column(
+            children: [
+              header,
+              const SizedBox(height: 12),
+              _emptyBox('لا توجد إشعارات حالياً'),
+            ],
+          );
+        }
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            header,
+            const SizedBox(height: 12),
+            ...docs.map((doc) {
+              final d = doc.data() as Map<String, dynamic>;
+              final isAuto = d['auto'] as bool? ?? false;
+              final title = d['title'] as String? ?? 'إشعار';
+              final message = d['message'] as String? ?? '';
+              final ts = d['timestamp'];
+              final accentColor = isAuto
+                  ? const Color(0xFF0369A1)
+                  : const Color(0xFF001F3F);
+              final iconData = isAuto
+                  ? Icons.smart_toy_rounded
+                  : Icons.campaign_rounded;
+
+              String timeStr = '';
+              if (ts is Timestamp) {
+                final dt = ts.toDate().toLocal();
+                final h = dt.hour.toString().padLeft(2, '0');
+                final m = dt.minute.toString().padLeft(2, '0');
+                timeStr = '${dt.day}/${dt.month}/${dt.year}  $h:$m';
+              }
+
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: GestureDetector(
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (_) => const NotificationsScreen()),
+                  ),
+                  child: Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.04),
+                          blurRadius: 10,
+                          offset: const Offset(0, 3),
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: accentColor.withOpacity(0.08),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(iconData,
+                              color: accentColor, size: 18),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                title,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
+                                  color: Color(0xFF1E293B),
+                                ),
+                              ),
+                              if (message.isNotEmpty) ...[
+                                const SizedBox(height: 3),
+                                Text(
+                                  message,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: Colors.grey[500],
+                                    fontSize: 12,
+                                    height: 1.5,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                        if (timeStr.isNotEmpty) ...[
+                          const SizedBox(width: 8),
+                          Text(
+                            timeStr,
+                            style: const TextStyle(
+                              fontSize: 10,
+                              color: Color(0xFF94A3B8),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            }),
+          ],
+        );
+      },
+    );
+  }
+
   // ── Campaigns carousel (auto-scroll, image_url field) ─────────────────────
 
   Widget _buildCampaigns() {
@@ -468,133 +638,61 @@ class _UserHomeScreenState extends State<UserHomeScreen> {
     );
   }
 
-  // ── Latest news ───────────────────────────────────────────────────────────
+  // ── Tips & Information ────────────────────────────────────────────────────
 
-  Widget _buildNews() {
-    return StreamBuilder<QuerySnapshot>(
-      stream:
-          FirebaseFirestore.instance.collection('news').snapshots(),
-      builder: (context, snap) {
-        if (snap.connectionState == ConnectionState.waiting) {
-          return _shimmer(160);
-        }
-        final docs = snap.data?.docs ?? [];
-        if (docs.isEmpty) return _emptyBox('لا توجد أخبار حالياً');
+  static const _tips = [
+    _Tip(
+      icon: Icons.how_to_vote,
+      title: 'كيف تصوّت؟',
+      desc: 'توجه لأقرب مركز اقتراع، سيتم التعرف على وجهك تلقائياً، اختر مرشحك وأكد صوتك',
+    ),
+    _Tip(
+      icon: Icons.lock,
+      title: 'صوتك سري',
+      desc: 'نظام التوكنات المجهولة يضمن عدم ربط صوتك بهويتك — لا أحد يعرف لمن صوّتت',
+    ),
+    _Tip(
+      icon: Icons.verified_user,
+      title: 'التحقق بالوجه',
+      desc: 'يتم التعرف على هويتك عبر الكاميرا الذكية — لا حاجة لإبراز أي وثائق',
+    ),
+    _Tip(
+      icon: Icons.access_time,
+      title: 'ساعات التصويت',
+      desc: 'مراكز الاقتراع مفتوحة من الساعة ٨ صباحاً حتى ٧ مساءً',
+    ),
+    _Tip(
+      icon: Icons.location_on,
+      title: 'أقرب مركز',
+      desc: 'استخدم خاصية أقرب مركز اقتراع لتحديد الموقع الأقرب إليك والتوجه إليه عبر الخريطة',
+    ),
+    _Tip(
+      icon: Icons.block,
+      title: 'صوت واحد فقط',
+      desc: 'كل ناخب يحق له التصويت مرة واحدة فقط — النظام يمنع التصويت المتكرر تلقائياً',
+    ),
+    _Tip(
+      icon: Icons.gavel,
+      title: 'حقك الانتخابي',
+      desc: 'التصويت حق وواجب وطني — صوتك يصنع الفرق في مستقبل مدينتك',
+    ),
+  ];
 
-        final sorted = [...docs]..sort((a, b) {
-            final aDate = _parseDate(
-                (a.data() as Map<String, dynamic>)['date']);
-            final bDate = _parseDate(
-                (b.data() as Map<String, dynamic>)['date']);
-            if (aDate == null || bDate == null) return 0;
-            return bDate.compareTo(aDate);
-          });
-
-        return _newsContent(sorted);
-      },
-    );
-  }
-
-  DateTime? _parseDate(dynamic raw) {
-    if (raw is Timestamp) return raw.toDate();
-    if (raw is String) return DateTime.tryParse(raw);
-    return null;
-  }
-
-  Widget _newsContent(List<QueryDocumentSnapshot> docs) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.04),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
+  Widget _buildTipsSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionTitle('نصائح ومعلومات', Icons.lightbulb_rounded),
+        const SizedBox(height: 12),
+        SizedBox(
+          height: 180,
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            itemCount: _tips.length,
+            itemBuilder: (_, i) => _TipCard(tip: _tips[i]),
           ),
-        ],
-      ),
-      child: Column(
-        children: List.generate(docs.length, (i) {
-          final doc = docs[i];
-          final d = doc.data() as Map<String, dynamic>;
-          final isExpanded = _expandedNews.contains(doc.id);
-          final isLast = i == docs.length - 1;
-          return _NewsItem(
-            docId: doc.id,
-            title: d['title'] as String? ?? '',
-            content: d['content'] as String? ?? '',
-            date: _fmtDate(d['date']),
-            isExpanded: isExpanded,
-            isLast: isLast,
-            onTap: () => setState(() {
-              if (isExpanded) {
-                _expandedNews.remove(doc.id);
-              } else {
-                _expandedNews.add(doc.id);
-              }
-            }),
-          );
-        }),
-      ),
-    );
-  }
-
-  String _fmtDate(dynamic raw) {
-    final d = _parseDate(raw);
-    if (d == null) return '';
-    return '${d.day}/${d.month}/${d.year}';
-  }
-
-  // ── Educational banner ────────────────────────────────────────────────────
-
-  Widget _buildEducationalBanner() {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: const Color(0xFFEEF2FF),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-            color: const Color(0xFF001F3F).withOpacity(0.12)),
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: const Color(0xFF001F3F).withOpacity(0.08),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(Icons.lightbulb_rounded,
-                color: Color(0xFF001F3F), size: 26),
-          ),
-          const SizedBox(width: 14),
-          const Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '💡 هل تعلم؟',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
-                    color: Color(0xFF001F3F),
-                  ),
-                ),
-                SizedBox(height: 4),
-                Text(
-                  'صوتك يحدد مستقبل بلدك، شارك في صنع القرار',
-                  style: TextStyle(
-                    color: Color(0xFF001F3F),
-                    fontSize: 13,
-                    height: 1.6,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
@@ -733,105 +831,74 @@ class _CampaignCard extends StatelessWidget {
       );
 }
 
-// ─── News item ────────────────────────────────────────────────────────────────
+// ─── Tip data model ───────────────────────────────────────────────────────────
 
-class _NewsItem extends StatelessWidget {
-  final String docId;
+class _Tip {
+  final IconData icon;
   final String title;
-  final String content;
-  final String date;
-  final bool isExpanded;
-  final bool isLast;
-  final VoidCallback onTap;
+  final String desc;
 
-  const _NewsItem({
-    required this.docId,
+  const _Tip({
+    required this.icon,
     required this.title,
-    required this.content,
-    required this.date,
-    required this.isExpanded,
-    required this.isLast,
-    required this.onTap,
+    required this.desc,
   });
+}
+
+// ─── Tip card ─────────────────────────────────────────────────────────────────
+
+class _TipCard extends StatelessWidget {
+  final _Tip tip;
+
+  const _TipCard({required this.tip});
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        InkWell(
-          onTap: onTap,
-          borderRadius: isLast
-              ? const BorderRadius.vertical(
-                  bottom: Radius.circular(20))
-              : BorderRadius.zero,
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF001F3F).withOpacity(0.08),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(Icons.article_rounded,
-                      color: Color(0xFF001F3F), size: 16),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        title,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 14,
-                          color: Color(0xFF1E293B),
-                        ),
-                      ),
-                      if (date.isNotEmpty) ...[
-                        const SizedBox(height: 2),
-                        Text(date,
-                            style: TextStyle(
-                                color: Colors.grey[400],
-                                fontSize: 11)),
-                      ],
-                      const SizedBox(height: 6),
-                      Text(
-                        content,
-                        maxLines: isExpanded ? null : 2,
-                        overflow: isExpanded
-                            ? TextOverflow.visible
-                            : TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: Colors.grey[600],
-                          fontSize: 13,
-                          height: 1.6,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Icon(
-                  isExpanded
-                      ? Icons.keyboard_arrow_up_rounded
-                      : Icons.keyboard_arrow_down_rounded,
-                  color: Colors.grey[400],
-                  size: 20,
-                ),
-              ],
+    return Container(
+      width: 260,
+      margin: const EdgeInsets.only(left: 8),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF000613), Color(0xFF001F3F)],
+          begin: Alignment.topRight,
+          end: Alignment.bottomLeft,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF001F3F).withOpacity(0.25),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(tip.icon, color: Colors.white, size: 40),
+          const Spacer(),
+          Text(
+            tip.title,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
             ),
           ),
-        ),
-        if (!isLast)
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 16),
-            child: Divider(height: 1, color: Color(0xFFF0F4F8)),
+          const SizedBox(height: 6),
+          Text(
+            tip.desc,
+            style: const TextStyle(
+              color: Colors.white70,
+              fontSize: 13,
+              height: 1.5,
+            ),
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
           ),
-      ],
+        ],
+      ),
     );
   }
 }

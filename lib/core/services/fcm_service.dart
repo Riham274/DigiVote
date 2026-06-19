@@ -4,6 +4,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import '../../firebase_options.dart';
 import '../../presentation/screens/notifications/notifications_screen.dart';
+import 'notification_service.dart';
 
 // Must be top-level — called by the system when app is terminated/background.
 @pragma('vm:entry-point')
@@ -50,8 +51,8 @@ class FcmService {
     // App was in BACKGROUND — user tapped notification
     FirebaseMessaging.onMessageOpenedApp.listen((_) => _openNotifications());
 
-    // App is FOREGROUND — show in-app snackbar
-    FirebaseMessaging.onMessage.listen(_showForegroundBanner);
+    // App is FOREGROUND — show real system notification via flutter_local_notifications
+    FirebaseMessaging.onMessage.listen(_showSystemNotification);
   }
 
   /// Show a friendly dialog then request system notification permission.
@@ -188,59 +189,13 @@ class FcmService {
     );
   }
 
-  static void _showForegroundBanner(RemoteMessage message) {
+  static void _showSystemNotification(RemoteMessage message) {
     final n = message.notification;
     if (n == null) return;
-
-    final title = n.title ?? 'إشعار جديد';
-    final body = n.body ?? '';
-
-    _messengerKey?.currentState?.showSnackBar(
-      SnackBar(
-        duration: const Duration(seconds: 5),
-        backgroundColor: const Color(0xFF001F3F),
-        behavior: SnackBarBehavior.floating,
-        shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        margin: const EdgeInsets.all(16),
-        content: Row(
-          children: [
-            const Icon(Icons.notifications_active_rounded,
-                color: Colors.amber, size: 26),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                        fontSize: 14),
-                  ),
-                  if (body.isNotEmpty) ...[
-                    const SizedBox(height: 2),
-                    Text(
-                      body,
-                      style: const TextStyle(
-                          color: Colors.white70, fontSize: 12),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ],
-        ),
-        action: SnackBarAction(
-          label: 'عرض',
-          textColor: Colors.amber,
-          onPressed: _openNotifications,
-        ),
-      ),
+    NotificationService.show(
+      id: n.hashCode,
+      title: n.title ?? 'إشعار جديد',
+      body: n.body ?? '',
     );
   }
 }

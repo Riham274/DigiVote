@@ -39,7 +39,7 @@
         <!-- FCM default notification channel displayed to users -->
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_channel_id"
-            android:value="univote_alerts" />
+            android:value="digivote_channel" />
         <!-- FCM default notification icon (uses app launcher icon) -->
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_icon"
