@@ -1,4 +1,5 @@
 import 'dart:math';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:geolocator/geolocator.dart';
@@ -32,7 +33,7 @@ class _Center {
   });
 }
 
-enum _LocState { loading, denied, disabled, ready }
+enum _LocState { loading, denied, disabled, webUnsupported, ready }
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
@@ -76,6 +77,10 @@ class _NearestCenterScreenState extends State<NearestCenterScreen> {
   // ── Load flow ─────────────────────────────────────────────────────────────
 
   Future<void> _load() async {
+    if (kIsWeb) {
+      if (mounted) setState(() => _state = _LocState.webUnsupported);
+      return;
+    }
     setState(() => _state = _LocState.loading);
 
     final serviceOn = await Geolocator.isLocationServiceEnabled();
@@ -176,6 +181,11 @@ class _NearestCenterScreenState extends State<NearestCenterScreen> {
               icon: Icons.gps_off_rounded,
               message: 'يرجى تفعيل خدمة الموقع للمتابعة',
             ),
+          _LocState.webUnsupported => _buildError(
+              icon: Icons.web_asset_off_rounded,
+              message: 'تحديد الموقع غير متاح على الويب. يرجى استخدام تطبيق الهاتف.',
+              showRetry: false,
+            ),
           _LocState.ready    => _buildList(),
         },
       ),
@@ -200,6 +210,7 @@ class _NearestCenterScreenState extends State<NearestCenterScreen> {
     required IconData icon,
     required String message,
     bool showSettings = false,
+    bool showRetry = true,
   }) {
     return Center(
       child: Padding(
@@ -239,19 +250,20 @@ class _NearestCenterScreenState extends State<NearestCenterScreen> {
               ),
               const SizedBox(height: 12),
             ],
-            OutlinedButton.icon(
-              onPressed: _load,
-              icon: const Icon(Icons.refresh_rounded),
-              label: const Text('إعادة المحاولة'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: const Color(0xFF001F3F),
-                side: const BorderSide(color: Color(0xFF001F3F)),
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 28, vertical: 14),
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16)),
+            if (showRetry)
+              OutlinedButton.icon(
+                onPressed: _load,
+                icon: const Icon(Icons.refresh_rounded),
+                label: const Text('إعادة المحاولة'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFF001F3F),
+                  side: const BorderSide(color: Color(0xFF001F3F)),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 28, vertical: 14),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16)),
+                ),
               ),
-            ),
           ],
         ),
       ),
@@ -641,6 +653,10 @@ class _NearestCenterNotifCardState extends State<NearestCenterNotifCard> {
   }
 
   Future<void> _fetchNearest() async {
+    if (kIsWeb) {
+      if (mounted) setState(() => _state = _LocState.webUnsupported);
+      return;
+    }
     setState(() => _state = _LocState.loading);
 
     final serviceOn = await Geolocator.isLocationServiceEnabled();
@@ -706,7 +722,9 @@ class _NearestCenterNotifCardState extends State<NearestCenterNotifCard> {
 
   @override
   Widget build(BuildContext context) {
-    if (_state == _LocState.denied || _state == _LocState.disabled) {
+    if (_state == _LocState.denied ||
+        _state == _LocState.disabled ||
+        _state == _LocState.webUnsupported) {
       return const SizedBox.shrink();
     }
 

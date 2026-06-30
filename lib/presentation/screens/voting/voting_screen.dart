@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter_tts/flutter_tts.dart';
@@ -28,6 +29,9 @@ class _VotingScreenState extends State<VotingScreen> {
   _TokenStatus  _tokenStatus  = _TokenStatus.loading;
   _VoteState    _voteState    = _VoteState.idle;
   bool          _alreadyVoted = false;
+
+  String _deviceId  = '';   // stored so denied screen can display it
+  String _checkError = '';  // last error from _checkDevice, if any
 
   String? _tokenDocId;
   String? _tokenValue;
@@ -88,7 +92,12 @@ class _VotingScreenState extends State<VotingScreen> {
   Future<void> _checkDevice() async {
     try {
       final deviceId = await _getDeviceId();
-      debugPrint('>>> DEVICE ID: $deviceId <<<');
+
+      // Log device ID via both print() and debugPrint() so it shows in console
+      print('Device ID: $deviceId');
+      debugPrint('>>> VOTING SCREEN DEVICE ID: $deviceId <<<');
+
+      if (mounted) setState(() => _deviceId = deviceId);
 
       final query = await FirebaseFirestore.instance
           .collection('authorized_devices')
@@ -114,8 +123,15 @@ class _VotingScreenState extends State<VotingScreen> {
         }
         await _fetchToken();
       }
-    } catch (_) {
-      if (mounted) setState(() => _deviceStatus = _DeviceStatus.denied);
+    } catch (e) {
+      print('Device check error: $e');
+      debugPrint('>>> DEVICE CHECK ERROR: $e <<<');
+      if (mounted) {
+        setState(() {
+          _checkError = e.toString();
+          _deviceStatus = _DeviceStatus.denied;
+        });
+      }
     }
   }
 
@@ -345,15 +361,155 @@ class _VotingScreenState extends State<VotingScreen> {
 
   // ── Denied ────────────────────────────────────────────────────────────────
 
-  Widget _buildDenied() => _statusScreen(
-        icon: Icons.how_to_vote_rounded,
-        iconColor: Colors.white60,
-        iconBg: Colors.white.withOpacity(0.07),
-        title: 'التصويت متاح فقط من داخل مركز الاقتراع',
-        titleColor: Colors.white,
-        message:
-            'يمكنك التصويت عبر الجهاز المخصص في أقرب مركز اقتراع معتمد.\n\nتوجّه إلى المركز وأبرز هويتك للموظف المختص.',
-      );
+  Widget _buildDenied() {
+    return Scaffold(
+      backgroundColor: const Color(0xFF000613),
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(40),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(28),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.07),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.device_unknown_rounded,
+                      size: 72, color: Colors.redAccent),
+                ),
+                const SizedBox(height: 32),
+                const Text(
+                  'الجهاز غير مخوّل',
+                  style: TextStyle(
+                      color: Colors.redAccent,
+                      fontSize: 24,
+                      fontWeight: FontWeight.w900),
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'هذا الجهاز غير مسجّل في قائمة الأجهزة المعتمدة.\nأضف معرّف الجهاز أدناه إلى مجموعة authorized_devices في Firestore.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                      color: Colors.white70, fontSize: 14, height: 1.7),
+                ),
+
+                // Device ID box — visible even if empty (shows loading state)
+                const SizedBox(height: 28),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 16, vertical: 14),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.06),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                        color: Colors.white.withOpacity(0.15), width: 1),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'معرّف الجهاز (device_id)',
+                        style: TextStyle(
+                            color: Colors.white38,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: 0.6),
+                      ),
+                      const SizedBox(height: 8),
+                      SelectableText(
+                        _deviceId.isEmpty ? 'جارٍ التحميل...' : _deviceId,
+                        style: TextStyle(
+                          color: _deviceId.isEmpty
+                              ? Colors.white30
+                              : Colors.white,
+                          fontSize: 15,
+                          fontFamily: 'monospace',
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                // Copy button
+                if (_deviceId.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  ElevatedButton.icon(
+                    onPressed: () {
+                      Clipboard.setData(ClipboardData(text: _deviceId));
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('تم نسخ معرّف الجهاز'),
+                          backgroundColor: Color(0xFF059669),
+                          duration: Duration(seconds: 2),
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.copy_rounded, size: 18),
+                    label: const Text('نسخ المعرّف'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF001F3F),
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14)),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 24, vertical: 12),
+                    ),
+                  ),
+                ],
+
+                // Error detail (only shown when an exception occurred)
+                if (_checkError.isNotEmpty) ...[
+                  const SizedBox(height: 20),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.red.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      'خطأ: $_checkError',
+                      style: const TextStyle(
+                          color: Colors.redAccent,
+                          fontSize: 12,
+                          height: 1.5),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ],
+
+                const SizedBox(height: 32),
+                OutlinedButton.icon(
+                  onPressed: () {
+                    setState(() {
+                      _deviceStatus = _DeviceStatus.checking;
+                      _checkError = '';
+                    });
+                    _checkDevice();
+                  },
+                  icon: const Icon(Icons.refresh_rounded,
+                      color: Colors.white54),
+                  label: const Text('إعادة المحاولة',
+                      style: TextStyle(color: Colors.white54)),
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: Colors.white24),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16)),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 28, vertical: 14),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 
   // ── Already voted ─────────────────────────────────────────────────────────
 

@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../../firebase_options.dart';
 import '../../presentation/screens/notifications/notifications_screen.dart';
@@ -31,15 +32,17 @@ class FcmService {
 
   /// Call once in main() after Firebase.initializeApp().
   static Future<void> initialize() async {
-    // Register background handler first
-    FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+    if (!kIsWeb) {
+      // Background handler is VM-only (mobile/desktop), not supported on web
+      FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
 
-    // iOS foreground presentation options (no-op on Android)
-    await _fcm.setForegroundNotificationPresentationOptions(
-      alert: true,
-      badge: true,
-      sound: true,
-    );
+      // iOS foreground presentation options (no-op on Android, not available on web)
+      await _fcm.setForegroundNotificationPresentationOptions(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
+    }
 
     // App was TERMINATED — user tapped notification to open app
     final initial = await _fcm.getInitialMessage();

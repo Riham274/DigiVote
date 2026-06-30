@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 class NotificationService {
@@ -10,6 +11,7 @@ class NotificationService {
   static const _channelDesc = 'إشعارات منصة DigiVote للانتخابات';
 
   static Future<void> initialize() async {
+    if (kIsWeb) return;
     const androidSettings =
         AndroidInitializationSettings('@mipmap/ic_launcher');
 
@@ -47,6 +49,7 @@ class NotificationService {
     required String title,
     String body = '',
   }) async {
+    if (kIsWeb) return;
     await _plugin.show(
       id,
       title,

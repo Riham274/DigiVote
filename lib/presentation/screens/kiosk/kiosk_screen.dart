@@ -373,7 +373,7 @@ class _KioskScreenState extends State<KioskScreen>
       _tts.speak('شكراً لك، تم تسجيل صوتك بنجاح');
 
       // 4. Random delay 5–30 s to prevent timing-based de-anonymisation
-      await Future.delayed(Duration(seconds: Random().nextInt(26) + 5));
+      await Future.delayed(Duration(seconds: Random().nextInt(8) + 3));
       if (!mounted) return;
 
       // 5. Release booth
