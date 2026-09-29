@@ -1,7 +1,3 @@
-<p align="center">
-  <img src="assets/logo.png" alt="DigiVote Logo" width="200"/>
-</p>
-
 <h1 align="center">DigiVote - Smart Electronic Voting System</h1>
 
 <p align="center">
@@ -260,15 +256,6 @@ Four Cloud Functions (v2) are deployed for automated operations:
 
 ---
 
-## Screenshots
-
-> _Add screenshots of the app screens here._
-
-| Voter Home | Candidates | Kiosk Voting | Admin Dashboard |
-|:----------:|:----------:|:------------:|:---------------:|
-| ![Home](screenshots/home.png) | ![Candidates](screenshots/candidates.png) | ![Kiosk](screenshots/kiosk.png) | ![Admin](screenshots/admin.png) |
-
----
 
 ## Installation & Setup
 
