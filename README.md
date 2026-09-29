@@ -271,7 +271,7 @@ Four Cloud Functions (v2) are deployed for automated operations:
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-username/digivote.git
+git clone [https://github.com/Riham274/DigiVote](https://github.com/Riham274/DigiVote.git)
 cd digivote
 
 # Install dependencies
